@@ -5,6 +5,7 @@ export interface Product {
   type: 'hoodie' | 'jacket' | 'tshirt' | 'polo' | 'oversized' | 'other'
   description: string
   basePrice: number
+  stock: number
   colors: string[]
   fabrics: PriceOption[]
   printPrices: PriceOption[]

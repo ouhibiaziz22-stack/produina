@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as BacRouteImport } from './routes/bac'
 import { Route as Bac2k27RouteImport } from './routes/bac-2k27'
 import { Route as ClothesRouteImport } from './routes/clothes'
@@ -17,6 +18,11 @@ import { Route as ClothesRouteImport } from './routes/clothes'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BacRoute = BacRouteImport.update({
@@ -37,12 +43,14 @@ const ClothesRoute = ClothesRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/bac': typeof BacRoute
   '/bac-2k27': typeof Bac2k27Route
   '/clothes': typeof ClothesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/bac': typeof BacRoute
   '/bac-2k27': typeof Bac2k27Route
   '/clothes': typeof ClothesRoute
@@ -50,20 +58,22 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/bac': typeof BacRoute
   '/bac-2k27': typeof Bac2k27Route
   '/clothes': typeof ClothesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bac' | '/bac-2k27' | '/clothes'
+  fullPaths: '/' | '/admin' | '/bac' | '/bac-2k27' | '/clothes'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/bac' | '/bac-2k27' | '/clothes'
-  id: '__root__' | '/' | '/bac' | '/bac-2k27' | '/clothes'
+  to: '/' | '/admin' | '/bac' | '/bac-2k27' | '/clothes'
+  id: '__root__' | '/' | '/admin' | '/bac' | '/bac-2k27' | '/clothes'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   BacRoute: typeof BacRoute
   Bac2k27Route: typeof Bac2k27Route
   ClothesRoute: typeof ClothesRoute
@@ -76,6 +86,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bac': {
@@ -104,6 +121,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   BacRoute: BacRoute,
   Bac2k27Route: Bac2k27Route,
   ClothesRoute: ClothesRoute,

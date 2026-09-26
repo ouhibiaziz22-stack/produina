@@ -30,6 +30,9 @@ type Product = {
   image: string;
   tag: string;
   sizes: string[];
+  description?: string;
+  colors?: string[];
+  fabrics?: Array<{ name: string; price: number }>;
 };
 type CartItem = { id: string; size: string; quantity: number; customization?: BacCustomization };
 type View = "home" | "clothes" | "bac";
@@ -42,57 +45,7 @@ type AuthUser = {
 };
 type AuthState = { token: string; user: AuthUser };
 
-const products: Product[] = [
-  {
-    id: "hoodie",
-    name: "OVERSIZED HOODIE",
-    type: "Heavyweight fleece / 460 GSM",
-    category: "main",
-    price: 85,
-    image: hoodieImage,
-    tag: "01 / CORE",
-    sizes: ["S", "M", "L", "XL"],
-  },
-  {
-    id: "jacket",
-    name: "VOLTAGE TRACK JACKET",
-    type: "Water-resistant shell / Relaxed fit",
-    category: "main",
-    price: 129,
-    image: heroImage,
-    tag: "04 / CORE",
-    sizes: ["S", "M", "L", "XL"],
-  },
-  {
-    id: "oversized-tee",
-    name: "OVERSIZED GRAPHIC TEE",
-    type: "Heavy cotton / Screen print",
-    category: "main",
-    price: 58,
-    image: teeImage,
-    tag: "05 / CORE",
-    sizes: ["S", "M", "L", "XL"],
-  },
-  {
-    id: "tee",
-    name: "HEAVY COTTON TEE",
-    type: "Boxy fit / 280 GSM",
-    category: "main",
-    price: 42,
-    image: teeImage,
-    tag: "02 / CORE",
-    sizes: ["S", "M", "L", "XL"],
-  },
-  {
-    id: "cargo",
-    name: "UTILITY CARGO PANTS",
-    type: "Relaxed fit / Technical cotton",
-    category: "main",
-    price: 96,
-    image: cargoImage,
-    tag: "03 / CORE",
-    sizes: ["S", "M", "L", "XL"],
-  },
+const featuredProducts: Product[] = [
   {
     id: "bac-hoodie",
     name: "2K27 CLASS HOODIE",
@@ -204,9 +157,11 @@ function getRemaining() {
 function ProductCard({
   product,
   onAdd,
+  onViewDetails,
 }: {
   product: Product;
   onAdd: (product: Product, size: string) => void;
+  onViewDetails: (product: Product) => void;
 }) {
   const [size, setSize] = useState("");
   const [prompt, setPrompt] = useState(false);
@@ -220,6 +175,13 @@ function ProductCard({
           width={768}
           height={1024}
         />
+        <button
+          type="button"
+          className="product-details-trigger"
+          onClick={() => onViewDetails(product)}
+        >
+          VIEW DETAILS
+        </button>
         <span className="product-index">{product.tag}</span>
         <div className="product-quick">
           <Zap size={14} fill="currentColor" /> AZIX STANDARD
@@ -227,7 +189,13 @@ function ProductCard({
       </div>
       <div className="product-info">
         <div>
-          <h3>{product.name}</h3>
+          <button
+            type="button"
+            className="product-name-trigger"
+            onClick={() => onViewDetails(product)}
+          >
+            <h3>{product.name}</h3>
+          </button>
           <p>{product.type}</p>
         </div>
         <strong>{money(product.price)}</strong>
@@ -258,6 +226,7 @@ function ProductCard({
               setPrompt(true);
               return;
             }
+
             onAdd(product, size);
             setPrompt(false);
           }}
@@ -271,6 +240,105 @@ function ProductCard({
         </p>
       )}
     </article>
+  );
+}
+
+function ProductDetails({
+  product,
+  onClose,
+  onAdd,
+}: {
+  product: Product;
+  onClose: () => void;
+  onAdd: (product: Product, size: string) => void;
+}) {
+  const [size, setSize] = useState("");
+  const [prompt, setPrompt] = useState(false);
+
+  function addProduct() {
+    if (!size) {
+      setPrompt(true);
+      return;
+    }
+    onAdd(product, size);
+    onClose();
+  }
+
+  return (
+    <div className="product-details-backdrop" onClick={onClose}>
+      <section
+        className="product-details-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-details-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="product-details-close"
+          onClick={onClose}
+          aria-label="Close product details"
+        >
+          <X size={20} />
+        </button>
+        <div className="product-details-image">
+          <img src={product.image} alt={product.name.toLowerCase()} />
+        </div>
+        <div className="product-details-content">
+          <span className="section-kicker">{product.tag}</span>
+          <div className="product-details-heading">
+            <h2 id="product-details-title">{product.name}</h2>
+            <strong>{money(product.price)}</strong>
+          </div>
+          <p className="product-details-type">{product.type}</p>
+          <p className="product-details-description">
+            {product.description || "A carefully made AZIX piece designed for everyday wear."}
+          </p>
+          <div className="product-details-meta">
+            <div>
+              <span>CATEGORY</span>
+              <b>{product.category === "bac" ? "BAC 2K27" : "CLOTHES"}</b>
+            </div>
+            {product.colors?.length ? (
+              <div>
+                <span>COLORS</span>
+                <b>{product.colors.join(", ")}</b>
+              </div>
+            ) : null}
+            {product.fabrics?.length ? (
+              <div>
+                <span>FABRIC</span>
+                <b>{product.fabrics.map((fabric) => fabric.name).join(", ")}</b>
+              </div>
+            ) : null}
+          </div>
+          <div className="product-details-sizes">
+            <span>SELECT SIZE</span>
+            <div className="sizes">
+              {product.sizes.map((itemSize) => (
+                <Button
+                  key={itemSize}
+                  variant="outline"
+                  type="button"
+                  aria-pressed={size === itemSize}
+                  className={`size-button ${size === itemSize ? "is-selected" : ""}`}
+                  onClick={() => {
+                    setSize(itemSize);
+                    setPrompt(false);
+                  }}
+                >
+                  {itemSize}
+                </Button>
+              ))}
+            </div>
+          </div>
+          {prompt && <p className="size-warning">Select a size first.</p>}
+          <Button className="add-button product-details-add" onClick={addProduct}>
+            <Plus size={16} /> ADD TO BAG
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -288,6 +356,10 @@ function ElectricBadge() {
 
 export function Storefront({ view }: { view: View }) {
   const navigate = useNavigate();
+  const [products, setProducts] = useState<Product[]>(featuredProducts);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [formOpen, setFormOpen] = useState<"preorder" | "bulk" | null>(null);
@@ -313,14 +385,75 @@ export function Storefront({ view }: { view: View }) {
   }, []);
   useEffect(() => setAuth(readAuthState()), []);
   useEffect(() => {
+    let cancelled = false;
+    setProductsLoading(true);
+    setProductsError("");
+
+    fetch(`${apiUrl}/products`)
+      .then(async (response) => {
+        const result = (await response.json()) as {
+          data?: Array<{
+            id: string;
+            name: string;
+            type: string;
+            category: "main" | "bac";
+            basePrice: number;
+            sizes: string[];
+            images?: string[];
+            description?: string;
+            colors?: string[];
+            fabrics?: Array<{ name: string; price: number }>;
+          }>;
+          message?: string;
+        };
+        if (!response.ok) throw new Error(result.message || "Unable to load products.");
+        return result.data ?? [];
+      })
+      .then((remoteProducts) => {
+        if (cancelled) return;
+        const remote = remoteProducts.map((product, index) => ({
+          id: product.id,
+          name: product.name.toUpperCase(),
+          type: product.type,
+          category: product.category,
+          price: product.basePrice,
+          image: product.images?.[0] || featuredProducts[index % featuredProducts.length].image,
+          tag: `${String(index + 1).padStart(2, "0")} / ${product.category === "bac" ? "2K27" : "ADMIN"}`,
+          sizes: product.sizes.length > 0 ? product.sizes : ["S", "M", "L", "XL"],
+          description: product.description,
+          colors: product.colors,
+          fabrics: product.fabrics,
+        }));
+        const remoteIds = new Set(remote.map((product) => product.id));
+        setProducts([
+          ...remote,
+          ...featuredProducts.filter((product) => !remoteIds.has(product.id)),
+        ]);
+      })
+      .catch((requestError) => {
+        if (cancelled) return;
+        setProductsError(
+          requestError instanceof Error ? requestError.message : "Unable to load products.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setProductsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
     window.localStorage.setItem(cartKey, JSON.stringify(cart));
   }, [cart]);
   useEffect(() => {
-    document.body.style.overflow = cartOpen || formOpen || authOpen ? "hidden" : "";
+    document.body.style.overflow =
+      cartOpen || formOpen || authOpen || selectedProduct ? "hidden" : "";
     return () => {
       document.body.style.overflow = "";
     };
-  }, [cartOpen, formOpen, authOpen]);
+  }, [cartOpen, formOpen, authOpen, selectedProduct]);
 
   function openAuth(mode: "login" | "register" = "login") {
     setAuthMode(mode);
@@ -364,6 +497,9 @@ export function Storefront({ view }: { view: View }) {
       window.localStorage.setItem(authKey, JSON.stringify(nextAuth));
       setAuth(nextAuth);
       setAuthOpen(false);
+      if (nextAuth.user.role === "admin") {
+        void navigate({ to: "/admin" });
+      }
     } catch (requestError) {
       setAuthError(
         requestError instanceof Error ? requestError.message : "Unable to authenticate.",
@@ -477,6 +613,11 @@ export function Storefront({ view }: { view: View }) {
           >
             BAC 2K27 <Zap size={12} fill="currentColor" />
           </Link>
+          {auth?.user.role === "admin" && (
+            <Link to="/admin" onClick={() => setMobileOpen(false)}>
+              DASHBOARD
+            </Link>
+          )}
         </nav>
         <div className="header-actions">
           <span className="header-edition">EST. FOR WHAT'S NEXT</span>
@@ -515,6 +656,11 @@ export function Storefront({ view }: { view: View }) {
           </Button>
         </div>
       </header>
+
+      {productsLoading && <p className="storefront-status">Loading latest products...</p>}
+      {productsError && (
+        <p className="storefront-status storefront-status-error">{productsError}</p>
+      )}
 
       {view === "home" && (
         <main>
@@ -590,7 +736,12 @@ export function Storefront({ view }: { view: View }) {
             </div>
             <div className="product-grid">
               {catalog.map((p) => (
-                <ProductCard product={p} onAdd={addToCart} key={p.id} />
+                <ProductCard
+                  product={p}
+                  onAdd={addToCart}
+                  onViewDetails={setSelectedProduct}
+                  key={p.id}
+                />
               ))}
             </div>
           </section>
@@ -654,7 +805,12 @@ export function Storefront({ view }: { view: View }) {
             </div>
             <div className="product-grid">
               {catalog.map((p) => (
-                <ProductCard product={p} onAdd={addToCart} key={p.id} />
+                <ProductCard
+                  product={p}
+                  onAdd={addToCart}
+                  onViewDetails={setSelectedProduct}
+                  key={p.id}
+                />
               ))}
             </div>
           </section>
@@ -722,7 +878,12 @@ export function Storefront({ view }: { view: View }) {
             </div>
             <div className="product-grid capsule-grid">
               {catalog.map((p) => (
-                <ProductCard product={p} onAdd={handleAdd} key={p.id} />
+                <ProductCard
+                  product={p}
+                  onAdd={handleAdd}
+                  onViewDetails={setSelectedProduct}
+                  key={p.id}
+                />
               ))}
               <div className="bulk-panel">
                 <Zap size={33} fill="currentColor" />
@@ -1169,6 +1330,14 @@ export function Storefront({ view }: { view: View }) {
             </button>
           </div>
         </div>
+      )}
+
+      {selectedProduct && (
+        <ProductDetails
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
+          onAdd={view === "bac" ? (product, size) => setCustomizing({ product, size }) : addToCart}
+        />
       )}
     </div>
   );

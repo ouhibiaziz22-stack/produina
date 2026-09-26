@@ -4,7 +4,7 @@ import { AppError } from '../utils/AppError.js'
 import { mapProduct } from '../repositories/supabaseRepository.js'
 
 const toRow = (input: Record<string, unknown>) => ({
-  category: input.category, name: input.name, type: input.type, description: input.description, base_price: input.basePrice,
+  category: input.category, name: input.name, type: input.type, description: input.description, base_price: input.basePrice, stock: input.stock,
   colors: input.colors, fabrics: input.fabrics, print_prices: input.printPrices, color_zones: input.colorZones,
   allowed_color_modes: input.allowedColorModes, model3d: input.model3d, sizes: input.sizes, images: input.images, active: input.active,
 })
@@ -14,6 +14,12 @@ export const listProducts: RequestHandler = async (request, response) => {
   let query = supabase.from('products').select('*').order('created_at', { ascending: false })
   if (!includeInactive) query = query.eq('active', true)
   if (request.query.category === 'main' || request.query.category === 'bac') query = query.eq('category', request.query.category)
+  if (typeof request.query.search === 'string' && request.query.search.trim()) {
+    const search = request.query.search.trim()
+    query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`)
+  }
+  if (request.query.active === 'true' || request.query.active === 'false') query = query.eq('active', request.query.active === 'true')
+  if (request.query.lowStock === 'true') query = query.lt('stock', 5)
   const result = await query
   if (result.error) throw new Error(result.error.message)
   response.json({ success: true, data: (result.data ?? []).map(mapProduct) })

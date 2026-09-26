@@ -16,6 +16,7 @@ export function mapProduct(row: Row): Product {
   return {
     id: String(row.id), category: row.category === 'bac' ? 'bac' : 'main', name: String(row.name),
     type: row.type as Product['type'], description: String(row.description), basePrice: Number(row.base_price),
+    stock: Number(row.stock ?? 0),
     colors: (row.colors as string[]) ?? [], fabrics: (row.fabrics as Product['fabrics']) ?? [],
     printPrices: (row.print_prices as Product['printPrices']) ?? [], colorZones: (row.color_zones as string[]) ?? [],
     allowedColorModes: (row.allowed_color_modes as number[]) ?? [], model3d: row.model3d as Product['model3d'],

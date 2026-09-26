@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS public.products (
   type text NOT NULL CHECK (type IN ('hoodie', 'jacket', 'tshirt', 'polo', 'oversized', 'other')),
   description text NOT NULL,
   base_price numeric(10,2) NOT NULL CHECK (base_price >= 0),
+  stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
   colors jsonb NOT NULL DEFAULT '[]'::jsonb,
   fabrics jsonb NOT NULL DEFAULT '[]'::jsonb,
   print_prices jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS public.products (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock integer NOT NULL DEFAULT 0;
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_stock_check;
+ALTER TABLE public.products ADD CONSTRAINT products_stock_check CHECK (stock >= 0);
 
 CREATE TABLE IF NOT EXISTS public.orders (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
