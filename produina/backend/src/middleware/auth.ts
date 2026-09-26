@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express'
 import jwt from 'jsonwebtoken'
 import { env } from '../config/env.js'
+import { findUserById } from '../repositories/supabaseRepository.js'
 import { AppError } from '../utils/AppError.js'
 
 type JwtPayload = { sub?: unknown; role?: unknown }
@@ -35,7 +36,10 @@ export const optionalAuth: RequestHandler = (request, _response, next) => {
   next()
 }
 
+// The role is re-read from the database so a demoted admin loses access immediately, not when the token expires.
 export const requireAdmin: RequestHandler = (request, _response, next) => {
   if (request.user?.role !== 'admin') return next(new AppError('Admin access required', 403))
-  next()
+  findUserById(request.user.id)
+    .then((user) => next(user?.role === 'admin' ? undefined : new AppError('Admin access required', 403)))
+    .catch(next)
 }

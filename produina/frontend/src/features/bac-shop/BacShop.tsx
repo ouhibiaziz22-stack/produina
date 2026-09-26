@@ -1,7 +1,7 @@
 import { Storefront } from "@/components/storefront";
 
 export function BacShop() {
-  if (import.meta.env.VITE_FEATURE_BAC === "false") {
+  if (import.meta.env["VITE_FEATURE_BAC"] === "false") {
     return (
       <main className="site-shell">
         <section className="page-intro">

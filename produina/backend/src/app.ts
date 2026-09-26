@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
-import { env } from "./config/env.js";
+import { env, isProduction } from "./config/env.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { aiRouter } from "./routes/aiRoutes.js";
 import { adminRouter } from "./routes/adminRoutes.js";
@@ -10,6 +10,7 @@ import { authRouter } from "./routes/authRoutes.js";
 import { bacRouter } from "./routes/bacRoutes.js";
 import { designRouter } from "./routes/designRoutes.js";
 import { orderRouter } from "./routes/orderRoutes.js";
+import { preorderRouter } from "./routes/preorderRoutes.js";
 import { productRouter } from "./routes/productRoutes.js";
 import { uploadRouter } from "./routes/uploadRoutes.js";
 import { userRouter } from "./routes/userRoutes.js";
@@ -18,19 +19,13 @@ export const app = express();
 app.disable("x-powered-by");
 app.locals.databaseReady = false;
 app.use(helmet());
-const allowedOrigins = new Set([
-  env.FRONTEND_URL,
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:5175",
-  "http://localhost:8080",
-  "http://localhost:8081",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  "http://127.0.0.1:5175",
-  "http://127.0.0.1:8080",
-  "http://127.0.0.1:8081",
+// Hosting platforms sit behind a proxy; without this every visitor shares one rate-limit bucket.
+app.set("trust proxy", env.TRUST_PROXY);
+const devOrigins = [8080, 8081, 5173, 5174, 5175].flatMap((port) => [
+  `http://localhost:${port}`,
+  `http://127.0.0.1:${port}`,
 ]);
+const allowedOrigins = new Set([...env.FRONTEND_URL, ...(isProduction ? [] : devOrigins)]);
 app.use(
   cors({
     origin: (origin, callback) =>
@@ -46,7 +41,7 @@ app.use(
     legacyHeaders: false,
   }),
 );
-app.use(express.json({ limit: "8mb" }));
+app.use(express.json({ limit: "1mb" }));
 app.get("/api/health", (_request, response) =>
   response.json({
     success: true,
@@ -75,6 +70,7 @@ app.use("/api/products", productRouter);
 app.use("/api/bac", bacRouter);
 app.use("/api/designs", designRouter);
 app.use("/api/orders", orderRouter);
+app.use("/api/preorders", preorderRouter);
 app.use("/api/ai", aiRouter);
 app.use("/api/users", userRouter);
 app.use("/api/uploads", uploadRouter);

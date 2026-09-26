@@ -1,13 +1,14 @@
 import multer from 'multer'
 import { AppError } from '../utils/AppError.js'
 
-const allowedTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
+// SVG is excluded: it can carry scripts and would be served from a public bucket.
+export const allowedImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 export const uploadImage = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (_request, file, callback) => {
-    if (!allowedTypes.has(file.mimetype)) return callback(new AppError('Only PNG, JPG, WEBP and SVG images are allowed', 400))
+    if (!allowedImageTypes.has(file.mimetype)) return callback(new AppError('Only PNG, JPG and WEBP images are allowed', 400))
     callback(null, true)
   },
 })

@@ -15,7 +15,8 @@ export const listProducts: RequestHandler = async (request, response) => {
   if (!includeInactive) query = query.eq('active', true)
   if (request.query.category === 'main' || request.query.category === 'bac') query = query.eq('category', request.query.category)
   if (typeof request.query.search === 'string' && request.query.search.trim()) {
-    const search = request.query.search.trim()
+    // Characters that are PostgREST filter syntax would let the search rewrite the query.
+    const search = request.query.search.trim().replace(/[,()*%\\]/g, ' ').slice(0, 100)
     query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`)
   }
   if (request.query.active === 'true' || request.query.active === 'false') query = query.eq('active', request.query.active === 'true')

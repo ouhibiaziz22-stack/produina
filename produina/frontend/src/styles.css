@@ -1354,6 +1354,56 @@ textarea {
 .product-details-sizes .sizes {
   margin-top: 10px;
 }
+.product-details-size-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.product-details-size-heading span,
+.product-details-size-heading button {
+  color: var(--soft-ink);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.product-details-size-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.size-guide {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.size-guide p {
+  color: var(--soft-ink);
+  margin-bottom: 8px;
+}
+.size-guide table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.size-guide th,
+.size-guide td {
+  padding: 6px 4px;
+  border-bottom: 1px solid currentColor;
+  border-bottom-color: color-mix(in srgb, currentColor 15%, transparent);
+  text-align: left;
+}
+.size-guide th {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+.form-honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
 .product-details-add {
   width: 100%;
   margin-top: 20px;

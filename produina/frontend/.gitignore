@@ -30,3 +30,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Vercel build output (created by the build, copied to the root .vercel by vercel.json)
+.vercel

@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
+import { apiRequest, clearAuth, readAuth, saveAuth, type AuthState } from "@/lib/api";
 import heroImage from "@/assets/azix-hero.jpg";
 import hoodieImage from "@/assets/hoodie.jpg";
 import teeImage from "@/assets/tee.jpg";
@@ -30,24 +30,75 @@ type Product = {
   image: string;
   tag: string;
   sizes: string[];
+  description?: string | undefined;
+  colors?: string[] | undefined;
+  fabrics?: Array<{ name: string; price: number }> | undefined;
+};
+type CartItem = {
+  id: string;
+  size: string;
+  quantity: number;
+  customization?: BacCustomization | undefined;
+};
+type View = "home" | "clothes" | "bac";
+type ApiProduct = {
+  id: string;
+  name: string;
+  type: string;
+  category: "main" | "bac";
+  basePrice: number;
+  sizes: string[];
+  images?: string[];
   description?: string;
   colors?: string[];
   fabrics?: Array<{ name: string; price: number }>;
 };
-type CartItem = { id: string; size: string; quantity: number; customization?: BacCustomization };
-type View = "home" | "clothes" | "bac";
-type AuthUser = {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  role: string;
-};
-type AuthState = { token: string; user: AuthUser };
 
-const featuredProducts: Product[] = [
+// Offline fallback for the launch catalog. IDs match the seed in
+// supabase/migrations/20260927090000_preorders_storage_catalog.sql so bag items stay orderable.
+const fallbackProducts: Product[] = [
   {
-    id: "bac-hoodie",
+    id: "19464c0d-686f-44c5-bb3a-5eed53f9b465",
+    name: "VOLT HOODIE",
+    type: "460 GSM / Brushed storm fleece",
+    category: "main",
+    price: 128,
+    image: hoodieImage,
+    tag: "01 / CORE",
+    sizes: ["S", "M", "L", "XL"],
+  },
+  {
+    id: "19f7fb9e-8a58-4384-9dab-abb59312e92e",
+    name: "STATIC SHELL",
+    type: "Water-resistant / Technical nylon",
+    category: "main",
+    price: 184,
+    image: bacImage,
+    tag: "02 / CORE",
+    sizes: ["S", "M", "L", "XL"],
+  },
+  {
+    id: "5a92efac-8c28-4d14-9eff-181c7ba2a6da",
+    name: "ARC TEE",
+    type: "240 GSM / Compact cotton",
+    category: "main",
+    price: 74,
+    image: teeImage,
+    tag: "03 / CORE",
+    sizes: ["S", "M", "L", "XL"],
+  },
+  {
+    id: "d12edfb7-4d75-4490-815c-923077fbf718",
+    name: "AFTERDARK PANT",
+    type: "Structured twill / Relaxed leg",
+    category: "main",
+    price: 142,
+    image: cargoImage,
+    tag: "04 / CORE",
+    sizes: ["S", "M", "L", "XL"],
+  },
+  {
+    id: "99c3756a-d429-4053-b53a-84607c361244",
     name: "2K27 CLASS HOODIE",
     type: "BAC 2K27 / Heavyweight fleece",
     category: "bac",
@@ -57,7 +108,7 @@ const featuredProducts: Product[] = [
     sizes: ["S", "M", "L", "XL"],
   },
   {
-    id: "bac-tee",
+    id: "df26c824-8c4a-45c5-a5ff-0dfbdc910dd4",
     name: "2K27 CLASS TEE",
     type: "BAC 2K27 / Heavy cotton",
     category: "bac",
@@ -67,7 +118,7 @@ const featuredProducts: Product[] = [
     sizes: ["S", "M", "L", "XL"],
   },
   {
-    id: "bac-jacket",
+    id: "fa3e9fc6-d53c-4501-b243-dafd05e23920",
     name: "2K27 VARSITY JACKET",
     type: "BAC 2K27 / Water-resistant shell",
     category: "bac",
@@ -77,7 +128,7 @@ const featuredProducts: Product[] = [
     sizes: ["S", "M", "L", "XL"],
   },
   {
-    id: "bac-cargo",
+    id: "8d036403-7bc2-46cb-b397-4209dd9e314f",
     name: "2K27 CLASS CARGO",
     type: "BAC 2K27 / Relaxed technical cotton",
     category: "bac",
@@ -87,6 +138,41 @@ const featuredProducts: Product[] = [
     sizes: ["S", "M", "L", "XL"],
   },
 ];
+const imageByType: Record<string, string> = {
+  hoodie: hoodieImage,
+  oversized: hoodieImage,
+  tshirt: teeImage,
+  polo: teeImage,
+  jacket: bacImage,
+};
+
+function toStorefrontProduct(product: ApiProduct, index: number): Product {
+  const known = fallbackProducts.find((item) => item.id === product.id);
+  return {
+    id: product.id,
+    name: product.name.toUpperCase(),
+    type: known?.type ?? product.type,
+    category: product.category,
+    price: product.basePrice,
+    image: product.images?.[0] || known?.image || imageByType[product.type] || cargoImage,
+    tag:
+      known?.tag ??
+      `${String(index + 1).padStart(2, "0")} / ${product.category === "bac" ? "2K27" : "CORE"}`,
+    sizes: product.sizes.length > 0 ? product.sizes : ["S", "M", "L", "XL"],
+    description: product.description,
+    colors: product.colors,
+    fabrics: product.fabrics,
+  };
+}
+
+const sizeGuide = [
+  ["XS", "56", "66"],
+  ["S", "58", "68"],
+  ["M", "61", "71"],
+  ["L", "64", "74"],
+  ["XL", "67", "77"],
+  ["XXL", "70", "80"],
+];
 
 // Prices and checkout requests are Tunisia-specific (the form accepts +216 numbers).
 const money = (value: number) =>
@@ -95,27 +181,8 @@ const money = (value: number) =>
     currency: "TND",
     minimumFractionDigits: 2,
   }).format(value);
-const cartKey = "azix-cart-v1";
-const authKey = "azix-auth-v1";
-const apiUrl = (import.meta.env.VITE_API_URL || "http://localhost:5000/api").replace(/\/$/, "");
-
-function readAuthState(): AuthState | null {
-  try {
-    const saved = JSON.parse(window.localStorage.getItem(authKey) || "null") as AuthState | null;
-    if (!saved?.token || !saved.user?.email) return null;
-    const payload = JSON.parse(
-      atob(saved.token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    if (payload.exp && payload.exp * 1000 <= Date.now()) {
-      window.localStorage.removeItem(authKey);
-      return null;
-    }
-    return saved;
-  } catch {
-    window.localStorage.removeItem(authKey);
-    return null;
-  }
-}
+// v2: product IDs are database UUIDs now, so bags saved with the old string IDs are dropped.
+const cartKey = "azix-cart-v2";
 
 function customizationKey(customization?: BacCustomization) {
   return customization ? JSON.stringify(customization) : "";
@@ -254,6 +321,7 @@ function ProductDetails({
 }) {
   const [size, setSize] = useState("");
   const [prompt, setPrompt] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   function addProduct() {
     if (!size) {
@@ -313,7 +381,35 @@ function ProductDetails({
             ) : null}
           </div>
           <div className="product-details-sizes">
-            <span>SELECT SIZE</span>
+            <div className="product-details-size-heading">
+              <span>SELECT SIZE</span>
+              <button type="button" onClick={() => setGuideOpen((open) => !open)}>
+                SIZE GUIDE {guideOpen ? <Minus size={13} /> : <Plus size={13} />}
+              </button>
+            </div>
+            {guideOpen && (
+              <div className="size-guide">
+                <p>Relaxed unisex fit. Between sizes? Size up for a looser silhouette.</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>SIZE</th>
+                      <th>CHEST (CM)</th>
+                      <th>LENGTH (CM)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sizeGuide.map(([label, chest, length]) => (
+                      <tr key={label}>
+                        <td>{label}</td>
+                        <td>{chest}</td>
+                        <td>{length}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             <div className="sizes">
               {product.sizes.map((itemSize) => (
                 <Button
@@ -356,7 +452,7 @@ function ElectricBadge() {
 
 export function Storefront({ view }: { view: View }) {
   const navigate = useNavigate();
-  const [products, setProducts] = useState<Product[]>(featuredProducts);
+  const [products, setProducts] = useState<Product[]>(fallbackProducts);
   const [productsLoading, setProductsLoading] = useState(true);
   const [productsError, setProductsError] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -383,52 +479,16 @@ export function Storefront({ view }: { view: View }) {
       /* Ignore an invalid local cart. */
     }
   }, []);
-  useEffect(() => setAuth(readAuthState()), []);
+  useEffect(() => setAuth(readAuth()), []);
   useEffect(() => {
     let cancelled = false;
     setProductsLoading(true);
     setProductsError("");
 
-    fetch(`${apiUrl}/products`)
-      .then(async (response) => {
-        const result = (await response.json()) as {
-          data?: Array<{
-            id: string;
-            name: string;
-            type: string;
-            category: "main" | "bac";
-            basePrice: number;
-            sizes: string[];
-            images?: string[];
-            description?: string;
-            colors?: string[];
-            fabrics?: Array<{ name: string; price: number }>;
-          }>;
-          message?: string;
-        };
-        if (!response.ok) throw new Error(result.message || "Unable to load products.");
-        return result.data ?? [];
-      })
+    apiRequest<ApiProduct[]>("/products")
       .then((remoteProducts) => {
-        if (cancelled) return;
-        const remote = remoteProducts.map((product, index) => ({
-          id: product.id,
-          name: product.name.toUpperCase(),
-          type: product.type,
-          category: product.category,
-          price: product.basePrice,
-          image: product.images?.[0] || featuredProducts[index % featuredProducts.length].image,
-          tag: `${String(index + 1).padStart(2, "0")} / ${product.category === "bac" ? "2K27" : "ADMIN"}`,
-          sizes: product.sizes.length > 0 ? product.sizes : ["S", "M", "L", "XL"],
-          description: product.description,
-          colors: product.colors,
-          fabrics: product.fabrics,
-        }));
-        const remoteIds = new Set(remote.map((product) => product.id));
-        setProducts([
-          ...remote,
-          ...featuredProducts.filter((product) => !remoteIds.has(product.id)),
-        ]);
+        if (cancelled || remoteProducts.length === 0) return;
+        setProducts(remoteProducts.map(toStorefrontProduct));
       })
       .catch((requestError) => {
         if (cancelled) return;
@@ -462,7 +522,7 @@ export function Storefront({ view }: { view: View }) {
   }
 
   function logout() {
-    window.localStorage.removeItem(authKey);
+    clearAuth();
     setAuth(null);
   }
 
@@ -481,20 +541,14 @@ export function Storefront({ view }: { view: View }) {
       password: String(values.get("password") || ""),
     };
     try {
-      const response = await fetch(`${apiUrl}/auth/${authMode}`, {
+      const nextAuth = await apiRequest<AuthState>(`/auth/${authMode}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body,
       });
-      const result = (await response.json()) as {
-        data?: AuthState;
-        message?: string;
-      };
-      if (!response.ok || !result.data?.token || !result.data.user) {
-        throw new Error(result.message || "Unable to authenticate. Please try again.");
+      if (!nextAuth?.token || !nextAuth.user) {
+        throw new Error("Unable to authenticate. Please try again.");
       }
-      const nextAuth = result.data;
-      window.localStorage.setItem(authKey, JSON.stringify(nextAuth));
+      saveAuth(nextAuth);
       setAuth(nextAuth);
       setAuthOpen(false);
       if (nextAuth.user.role === "admin") {
@@ -553,34 +607,48 @@ export function Storefront({ view }: { view: View }) {
     setSubmitting(true);
     setError("");
     const values = new FormData(event.currentTarget);
-    const items =
+    const field = (name: string) => String(values.get(name) || "").trim();
+    const contact = {
+      name: field("name"),
+      email: field("email"),
+      notes: field("notes") || undefined,
+      website: field("website") || undefined,
+    };
+    const body =
       formOpen === "preorder"
-        ? cart.map((item) => ({
-            product: products.find((p) => p.id === item.id)?.name || item.id,
-            category: products.find((p) => p.id === item.id)?.category || "main",
-            size: item.size,
-            quantity: item.quantity,
-            customization: item.customization || null,
-          }))
-        : [{ product: "BAC 2K27 capsule", quantity: bulkQuantity }];
-    const { error: submitError } = await supabase.from("preorder_requests").insert({
-      customer_name: String(values.get("name") || "").trim(),
-      email: String(values.get("email") || "").trim(),
-      phone: String(values.get("phone") || "").trim(),
-      governorate: String(values.get("governorate") || "").trim(),
-      school: String(values.get("school") || "").trim() || null,
-      request_type: formOpen,
-      items,
-      quantity: formOpen === "preorder" ? count : bulkQuantity,
-      notes: String(values.get("notes") || "").trim() || null,
-    });
-    setSubmitting(false);
-    if (submitError) {
-      setError("We couldn't send your request. Please try again.");
-      return;
+        ? {
+            ...contact,
+            requestType: "preorder",
+            phone: field("phone"),
+            governorate: field("governorate"),
+            items: cart
+              .filter((item) => products.some((p) => p.id === item.id))
+              .map((item) => ({
+                productId: item.id,
+                size: item.size,
+                quantity: item.quantity,
+                customization: item.customization,
+              })),
+          }
+        : {
+            ...contact,
+            requestType: "bulk",
+            school: field("school") || undefined,
+            quantity: bulkQuantity,
+          };
+    try {
+      await apiRequest("/preorders", { method: "POST", body, token: auth?.token });
+      setSubmitted(true);
+      if (formOpen === "preorder") setCart([]);
+    } catch (submitError) {
+      setError(
+        submitError instanceof Error
+          ? submitError.message
+          : "We couldn't send your request. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitted(true);
-    if (formOpen === "preorder") setCart([]);
   }
 
   const catalog = products.filter(
@@ -623,7 +691,7 @@ export function Storefront({ view }: { view: View }) {
           <span className="header-edition">EST. FOR WHAT'S NEXT</span>
           {auth ? (
             <Button variant="ghost" className="auth-trigger" onClick={logout} aria-label="Log out">
-              {auth.user.name.split(" ")[0].toUpperCase()} / LOG OUT
+              {(auth.user.name.split(" ")[0] ?? "").toUpperCase()} / LOG OUT
             </Button>
           ) : (
             <Button
@@ -785,7 +853,7 @@ export function Storefront({ view }: { view: View }) {
               <i>COLLECTION.</i>
             </h1>
             <p>Oversized silhouettes. Heavyweight feel. Nothing extra, everything intentional.</p>
-            <span className="intro-number">001 — 003</span>
+            <span className="intro-number">001 — {String(catalog.length).padStart(3, "0")}</span>
           </section>
           <Ticker />
           <section className="collection-section catalog-section">
@@ -800,7 +868,7 @@ export function Storefront({ view }: { view: View }) {
               </div>
               <div className="section-aside">
                 <p>Find your fit. Select your size. Make it yours.</p>
-                <span className="item-count">03 PIECES</span>
+                <span className="item-count">{String(catalog.length).padStart(2, "0")} PIECES</span>
               </div>
             </div>
             <div className="product-grid">
@@ -1210,6 +1278,13 @@ export function Storefront({ view }: { view: View }) {
                       </div>
                     </div>
                   )}
+                  <input
+                    name="website"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    className="form-honeypot"
+                  />
                   <label>
                     ANYTHING ELSE? <span className="optional">OPTIONAL</span>
                     <textarea

@@ -12,15 +12,12 @@ const priceOption = z.object({
   name: z.string().trim().min(1).max(60),
   price: z.number().min(0),
 });
-const imageValue = z.string().refine((value) => {
-  try {
-    if (value.startsWith("data:image/")) return value.length <= 7_000_000;
-    new URL(value);
-    return true;
-  } catch {
-    return false;
-  }
-}, "Image must be a valid URL or image data");
+// Images are uploaded to storage first (POST /api/uploads/image); rows store URLs only.
+const imageValue = z
+  .string()
+  .url("Image must be a valid URL")
+  .max(2048)
+  .refine((value) => /^https?:\/\//i.test(value), "Image must be an http(s) URL");
 export const productSchema = z.object({
   name: z.string().trim().min(2).max(100),
   type: productType,
