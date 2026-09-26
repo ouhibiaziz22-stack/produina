@@ -1,13 +1,13 @@
 # Produiwina
 
-Produiwina is a Tunisian BAC merchandise platform. The existing customizer is preserved and now lives in an independent React frontend, while a separate Express/MongoDB API provides authentication, catalog management, saved designs, AI-logo provider integration, uploads, and server-side order pricing.
+Produiwina is a Tunisian BAC merchandise platform. The existing customizer is preserved and now lives in an independent React frontend, while an Express + Supabase API provides authentication, catalog management, saved designs, AI-logo provider integration, uploads, and server-side order pricing.
 
 ## Structure
 
 ```text
 Produiwina/
 ├── frontend/   React + TypeScript + Vite + Tailwind
-├── backend/    Express + TypeScript + MongoDB/Mongoose
+├── backend/    Express + TypeScript + Supabase
 └── README.md
 ```
 
@@ -17,7 +17,7 @@ Produiwina/
 npm install
 ```
 
-Create `backend/.env` from `backend/.env.example` and provide MongoDB plus a JWT secret of at least 32 characters. Create `frontend/.env` from `frontend/.env.example` when the API is not at its default URL.
+Create `backend/.env` from `backend/.env.example` and provide the Supabase project URL, the server-only service-role key, and a JWT secret of at least 32 characters. Apply the migration in `frontend/supabase/migrations/20260926050000_backend_store.sql` before starting the API. Create `frontend/.env` from `frontend/.env.example` when the API is not at its default URL.
 
 ```bash
 npm run dev:backend
@@ -43,8 +43,8 @@ The frontend preserves the guided customizer and includes API-ready routes for p
 
 ## Admin access
 
-The API can provision the first administrator at startup from the ignored `backend/.env` values `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_NAME`. The password is hashed before it is saved. Once the API can reach MongoDB, sign in through the normal login flow and open `/admin`; the protected dashboard manages products, orders, users and roles, saved designs, and BAC categories.
+The API can provision the first administrator at startup from the ignored `backend/.env` values `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_NAME`. The password is hashed before it is saved. Once the API can reach Supabase, sign in through the normal login flow and open `/admin`; the protected dashboard manages products, orders, users and roles, saved designs, and BAC categories.
 
 ## Production notes
 
-Configure a real MongoDB deployment, HTTPS, managed image storage, and a production AI provider through backend services. Never put JWT secrets, database credentials, or provider keys in frontend environment variables.
+Configure the Supabase migration, HTTPS, managed image storage, and a production AI provider through backend services. Never put JWT secrets, service-role credentials, or provider keys in frontend environment variables. Existing MongoDB data must be exported and transformed into the Supabase tables before the old database is decommissioned.

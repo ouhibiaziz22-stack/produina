@@ -32,7 +32,7 @@ app.use(express.json({ limit: '1mb' }))
 app.get('/api/health', (_request, response) => response.json({ success: true, data: { status: app.locals.databaseReady ? 'ok' : 'degraded', database: app.locals.databaseReady } }))
 app.use((request, response, next) => {
   if (!app.locals.databaseReady && request.path !== '/api/health') {
-    response.status(503).json({ success: false, message: 'Database unavailable. Check MongoDB Atlas Network Access.' })
+    response.status(503).json({ success: false, message: 'Database unavailable. Check Supabase configuration.' })
     return
   }
   next()

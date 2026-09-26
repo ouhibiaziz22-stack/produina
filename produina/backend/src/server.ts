@@ -14,7 +14,7 @@ async function connectServices() {
     app.locals.databaseReady = true
     console.info('Database services are ready.')
   } catch (error) {
-    console.error('Database unavailable. Add this machine to MongoDB Atlas Network Access, then restart the API.', error)
+    console.error('Supabase unavailable. Check SUPABASE_URL and SUPABASE_SECRET_KEY, then apply the database migrations.', error)
     const retry = setTimeout(() => { void connectServices() }, 15_000)
     retry.unref()
   } finally {

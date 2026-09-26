@@ -20,9 +20,16 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
     response.status(400).json({ success: false, message: 'Invalid resource id' })
     return
   }
-  if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: number }).code === 11000) {
-    response.status(409).json({ success: false, message: 'An account already exists for this email' })
-    return
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const code = (error as { code?: number | string }).code
+    if (code === '22P02') {
+      response.status(400).json({ success: false, message: 'Invalid resource id' })
+      return
+    }
+    if (code === '23505' || code === 11000) {
+      response.status(409).json({ success: false, message: 'An account already exists for this email' })
+      return
+    }
   }
   console.error(error)
   response.status(500).json({ success: false, message: 'Internal server error' })
