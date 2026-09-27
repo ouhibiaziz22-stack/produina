@@ -1950,6 +1950,10 @@ textarea {
   color: var(--destructive);
   margin: 0;
 }
+.form-notice {
+  font-size: 12px;
+  margin: 0;
+}
 .success-state {
   padding: 30px 0;
 }

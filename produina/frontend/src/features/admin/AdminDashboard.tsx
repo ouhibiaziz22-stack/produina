@@ -19,9 +19,18 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { apiRequest, clearAuth, readAuth, saveAuth, type AuthState } from "@/lib/api";
+import {
+  currentProfile,
+  friendlyError,
+  mapProduct,
+  signIn,
+  signOut,
+  supabase,
+  toProductRow,
+  type Product,
+  type Profile,
+} from "@/lib/supabase";
 
-type User = { id: string; name: string; email: string; role: string };
 type Section = "overview" | "products" | "orders" | "preorders" | "users" | "finance";
 type Preorder = {
   id: string;
@@ -43,38 +52,14 @@ type Preorder = {
     customization?: { studentName: string; lycee: string; section: string } | null;
   }>;
 };
-type Product = {
-  id: string;
-  name: string;
-  type: string;
-  category: "main" | "bac";
-  basePrice: number;
-  stock: number;
-  active: boolean;
-  description: string;
-  colors: string[];
-  fabrics: { name: string; price: number }[];
-  sizes: string[];
-  images: string[];
-};
 type Order = {
   id: string;
   total: number;
   status: string;
   created_at: string;
-  users?: { name?: string; email?: string };
+  users?: { name?: string; email?: string } | undefined;
 };
-type DashboardData = {
-  totalUsers: number;
-  totalProducts: number;
-  totalOrders: number;
-  totalRevenue: number;
-  openOrders: number;
-  lowStock: number;
-  productsByStatus: { active: number; inactive: number };
-  recentOrders: Order[];
-};
-type AdminUser = User & { createdAt?: string };
+type AdminUser = { id: string; name: string; email: string; role: string; createdAt?: string };
 type Notification = {
   id: string;
   title: string;
@@ -87,34 +72,74 @@ type Notification = {
 const statuses = ["new", "confirmed", "preparing", "shipped", "delivered", "cancelled"];
 const preorderStatuses = ["new", "contacted", "confirmed", "converted", "cancelled"];
 
-function getAuth(): AuthState | null {
-  const value = readAuth();
-  return value?.user.role === "admin" ? value : null;
-}
-
-function request<T>(
-  path: string,
-  token: string,
-  options: { method?: string; body?: unknown } = {},
-) {
-  return apiRequest<T>(path, { token, ...options });
-}
-
 function money(value: number) {
   return new Intl.NumberFormat("en-TN", { style: "currency", currency: "TND" }).format(value);
 }
 
+// Every query below runs as the signed-in admin; Row Level Security decides what it may see.
+async function fetchNotifications(): Promise<Notification[]> {
+  const { data, error } = await supabase()
+    .from("notifications")
+    .select("id,title,message,created_at,read_at,metadata")
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return (data ?? []).map((row) => ({ ...row, read: Boolean(row.read_at) }) as Notification);
+}
+
+async function fetchAdminData() {
+  const db = supabase();
+  const [products, orders, users, preorders, notifications] = await Promise.all([
+    db.from("products").select("*").order("created_at", { ascending: false }),
+    db
+      .from("orders")
+      .select("id,total,status,created_at,profiles(name,email)")
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    db
+      .from("profiles")
+      .select("id,name,email,role,created_at")
+      .order("created_at", { ascending: false }),
+    db.from("preorder_requests").select("*").order("created_at", { ascending: false }).limit(500),
+    fetchNotifications().catch(() => [] as Notification[]),
+  ]);
+  for (const result of [products, orders, users, preorders]) if (result.error) throw result.error;
+  return {
+    products: (products.data ?? []).map(mapProduct),
+    orders: (orders.data ?? []).map((row) => {
+      const customer = row.profiles as unknown as { name?: string; email?: string } | null;
+      return {
+        id: row.id,
+        total: Number(row.total),
+        status: row.status,
+        created_at: row.created_at,
+        users: customer ?? undefined,
+      } as Order;
+    }),
+    users: (users.data ?? []).map(
+      (row) =>
+        ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          createdAt: row.created_at,
+        }) as AdminUser,
+    ),
+    preorders: (preorders.data ?? []) as Preorder[],
+    notifications,
+  };
+}
+
 export function AdminDashboard() {
-  const [auth, setAuth] = useState<AuthState | null>(() =>
-    typeof window === "undefined" ? null : getAuth(),
-  );
+  const [admin, setAdmin] = useState<Profile | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [section, setSection] = useState<Section>("overview");
   const [preorders, setPreorders] = useState<Preorder[]>([]);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [productSearch, setProductSearch] = useState("");
@@ -124,167 +149,185 @@ export function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [showAdd, setShowAdd] = useState(false);
 
-  const loadData = useCallback(async (currentAuth: AuthState | null) => {
-    if (!currentAuth) return;
+  useEffect(() => {
+    currentProfile()
+      .then((profile) => setAdmin(profile?.role === "admin" ? profile : null))
+      .catch(() => setAdmin(null))
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [nextProducts, nextOrders, nextDashboard, nextUsers, nextNotifications, nextPreorders] =
-        await Promise.all([
-          request<Product[]>("/products?includeInactive=true", currentAuth.token),
-          request<Order[]>("/orders", currentAuth.token),
-          request<DashboardData>("/admin/dashboard", currentAuth.token),
-          request<AdminUser[]>("/admin/users?limit=100", currentAuth.token),
-          request<Notification[]>("/admin/notifications", currentAuth.token).catch(() => []),
-          request<Preorder[]>("/preorders", currentAuth.token),
-        ]);
-      setProducts(nextProducts);
-      setOrders(nextOrders);
-      setDashboard(nextDashboard);
-      setUsers(nextUsers);
-      setNotifications(nextNotifications);
-      setPreorders(nextPreorders);
+      const next = await fetchAdminData();
+      setProducts(next.products);
+      setOrders(next.orders);
+      setUsers(next.users);
+      setPreorders(next.preorders);
+      setNotifications(next.notifications);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load dashboard data.");
+      setError(friendlyError(loadError, "Unable to load dashboard data."));
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadData(auth);
-  }, [auth, loadData]);
+    if (admin) void loadData();
+  }, [admin, loadData]);
 
   useEffect(() => {
-    if (!auth) return;
+    if (!admin) return;
     const poll = window.setInterval(async () => {
       try {
-        const next = await request<Notification[]>("/admin/notifications?limit=30", auth.token);
-        setNotifications(next);
+        setNotifications(await fetchNotifications());
       } catch {
         // The dashboard keeps its current data when a polling request fails.
       }
     }, 15000);
     return () => window.clearInterval(poll);
-  }, [auth]);
+  }, [admin]);
 
   async function login(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
-      const nextAuth = await apiRequest<AuthState>("/auth/login", {
-        method: "POST",
-        body: { email: email.trim().toLowerCase(), password },
-      });
-      if (nextAuth.user.role !== "admin")
+      const profile = await signIn(email.trim().toLowerCase(), password);
+      if (profile.role !== "admin") {
+        await signOut();
         throw new Error("This account does not have administrator access.");
-      saveAuth(nextAuth);
-      setAuth(nextAuth);
+      }
+      setAdmin(profile);
       setPassword("");
     } catch (loginError) {
-      setError(loginError instanceof Error ? loginError.message : "Unable to sign in.");
+      setError(friendlyError(loginError, "Unable to sign in."));
     } finally {
       setLoading(false);
     }
   }
 
-  function logout() {
-    clearAuth();
-    setAuth(null);
+  async function logout() {
+    await signOut().catch(() => undefined);
+    setAdmin(null);
   }
 
   async function updateProduct(id: string, values: Partial<Product>) {
-    if (!auth) return;
     try {
-      const updated = await request<Product>(`/products/${id}`, auth.token, {
-        method: "PUT",
-        body: values,
-      });
+      const { data, error: updateError } = await supabase()
+        .from("products")
+        .update({ ...toProductRow(values), updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (updateError) throw updateError;
+      const updated = mapProduct(data);
       setProducts((current) => current.map((product) => (product.id === id ? updated : product)));
       setNotice("Product updated.");
     } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "Unable to update product.");
+      setError(friendlyError(updateError, "Unable to update product."));
     }
   }
 
   async function removeProduct(id: string) {
-    if (!auth || !window.confirm("Remove this product permanently?")) return;
+    if (!window.confirm("Remove this product permanently?")) return;
     try {
-      await request<void>(`/products/${id}`, auth.token, { method: "DELETE" });
+      const { error: removeError } = await supabase().from("products").delete().eq("id", id);
+      if (removeError) throw removeError;
       setProducts((current) => current.filter((product) => product.id !== id));
       setNotice("Product removed.");
     } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : "Unable to remove product.");
+      setError(friendlyError(removeError, "Unable to remove product."));
     }
   }
 
   async function updateOrder(id: string, status: string) {
-    if (!auth) return;
     try {
-      const updated = await request<Order>(`/orders/${id}`, auth.token, {
-        method: "PUT",
-        body: { status },
-      });
+      const { error: orderError } = await supabase()
+        .from("orders")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (orderError) throw orderError;
       setOrders((current) =>
-        current.map((order) => (order.id === id ? { ...order, ...updated } : order)),
+        current.map((order) => (order.id === id ? { ...order, status } : order)),
       );
       setNotice(`Order marked ${status}.`);
     } catch (orderError) {
-      setError(orderError instanceof Error ? orderError.message : "Unable to update order.");
+      setError(friendlyError(orderError, "Unable to update order."));
     }
   }
 
   async function updatePreorder(id: string, status: string) {
-    if (!auth) return;
     try {
-      const updated = await request<Preorder>(`/preorders/${id}`, auth.token, {
-        method: "PATCH",
-        body: { status },
-      });
-      setPreorders((current) => current.map((item) => (item.id === id ? updated : item)));
+      const { data, error: preorderError } = await supabase()
+        .from("preorder_requests")
+        .update({ status })
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (preorderError) throw preorderError;
+      setPreorders((current) =>
+        current.map((item) => (item.id === id ? (data as Preorder) : item)),
+      );
       setNotice(`Pre-order marked ${status}.`);
     } catch (preorderError) {
-      setError(
-        preorderError instanceof Error ? preorderError.message : "Unable to update pre-order.",
-      );
+      setError(friendlyError(preorderError, "Unable to update pre-order."));
     }
   }
 
   async function updateRole(id: string, role: string) {
-    if (!auth) return;
     try {
-      const updated = await request<AdminUser>(`/users/${id}/role`, auth.token, {
-        method: "PUT",
-        body: { role },
+      const { data, error: roleError } = await supabase().rpc("set_user_role", {
+        target_id: id,
+        new_role: role,
       });
+      if (roleError) throw roleError;
+      const updated = data as { name: string; role: string };
       setUsers((current) =>
-        current.map((user) => (user.id === id ? { ...user, ...updated } : user)),
+        current.map((user) => (user.id === id ? { ...user, role: updated.role } : user)),
       );
       setNotice(`${updated.name} is now ${role === "admin" ? "an administrator" : "a customer"}.`);
     } catch (roleError) {
-      setError(roleError instanceof Error ? roleError.message : "Unable to change role.");
+      setError(friendlyError(roleError, "Unable to change role."));
     }
+  }
+
+  async function markNotificationsRead(id?: string) {
+    let query = supabase().from("notifications").update({ read_at: new Date().toISOString() });
+    query = id ? query.eq("id", id) : query.is("read_at", null);
+    const { error: readError } = await query;
+    if (readError) throw readError;
+    setNotifications((current) =>
+      current.map((item) => (!id || item.id === id ? { ...item, read: true } : item)),
+    );
   }
 
   const stats = useMemo(
     () => ({
-      products: dashboard?.totalProducts ?? products.length,
-      active:
-        dashboard?.productsByStatus.active ?? products.filter((product) => product.active).length,
-      lowStock: dashboard?.lowStock ?? products.filter((product) => product.stock < 5).length,
-      pending:
-        dashboard?.openOrders ??
-        orders.filter((order) => ["new", "confirmed", "preparing"].includes(order.status)).length,
-      orders: dashboard?.totalOrders ?? orders.length,
-      revenue:
-        dashboard?.totalRevenue ?? orders.reduce((sum, order) => sum + Number(order.total || 0), 0),
-      users: dashboard?.totalUsers ?? users.length,
+      products: products.length,
+      active: products.filter((product) => product.active).length,
+      lowStock: products.filter((product) => product.stock < 5).length,
+      pending: orders.filter((order) => ["new", "confirmed", "preparing"].includes(order.status))
+        .length,
+      orders: orders.length,
+      revenue: orders
+        .filter((order) => order.status !== "cancelled")
+        .reduce((sum, order) => sum + Number(order.total || 0), 0),
+      users: users.length,
     }),
-    [dashboard, products, orders, users],
+    [products, orders, users],
   );
 
-  if (!auth) {
+  if (!authChecked) {
+    return (
+      <main className="admin-login">
+        <p className="admin-muted">Loading…</p>
+      </main>
+    );
+  }
+
+  if (!admin) {
     return (
       <main className="admin-login">
         <div className="admin-login-card">
@@ -376,7 +419,7 @@ export function AdminDashboard() {
             <DollarSign size={17} /> Finance
           </button>
         </nav>
-        <button className="admin-logout" onClick={logout}>
+        <button className="admin-logout" onClick={() => void logout()}>
           <LogOut size={16} /> Log out
         </button>
       </aside>
@@ -399,8 +442,8 @@ export function AdminDashboard() {
             </h1>
           </div>
           <div className="admin-user">
-            <span>{auth.user.name}</span>
-            <small>{auth.user.email}</small>
+            <span>{admin.name}</span>
+            <small>{admin.email}</small>
           </div>
           <div className="admin-notifications">
             <button aria-label="Notifications" onClick={() => setNotificationOpen((open) => !open)}>
@@ -414,14 +457,11 @@ export function AdminDashboard() {
                 <div className="panel-heading">
                   <h2>Notifications</h2>
                   <button
-                    onClick={async () => {
-                      await request("/admin/notifications/read-all", auth.token, {
-                        method: "PATCH",
-                      });
-                      setNotifications((current) =>
-                        current.map((item) => ({ ...item, read: true })),
-                      );
-                    }}
+                    onClick={() =>
+                      markNotificationsRead().catch((readError) =>
+                        setError(friendlyError(readError)),
+                      )
+                    }
                   >
                     Mark all read
                   </button>
@@ -431,14 +471,7 @@ export function AdminDashboard() {
                     className={`admin-notification ${notification.read ? "read" : ""}`}
                     key={notification.id}
                     onClick={async () => {
-                      await request(`/admin/notifications/${notification.id}/read`, auth.token, {
-                        method: "PATCH",
-                      });
-                      setNotifications((current) =>
-                        current.map((item) =>
-                          item.id === notification.id ? { ...item, read: true } : item,
-                        ),
-                      );
+                      await markNotificationsRead(notification.id).catch(() => undefined);
                       setSection(notification.metadata?.preorderId ? "preorders" : "orders");
                     }}
                   >
@@ -479,7 +512,7 @@ export function AdminDashboard() {
             search={productSearch}
             onSearch={setProductSearch}
             loading={loading}
-            onRefresh={() => loadData(auth)}
+            onRefresh={() => void loadData()}
             onAdd={() => setShowAdd(true)}
             onUpdate={updateProduct}
             onRemove={removeProduct}
@@ -490,7 +523,7 @@ export function AdminDashboard() {
           <PreordersPanel preorders={preorders} onUpdate={updatePreorder} />
         )}
         {section === "users" && (
-          <UsersPanel users={users} currentUserId={auth.user.id} onRoleChange={updateRole} />
+          <UsersPanel users={users} currentUserId={admin.id} onRoleChange={updateRole} />
         )}
         {section === "finance" && <FinancePanel stats={stats} orders={orders} />}
         {showAdd && (
@@ -501,7 +534,6 @@ export function AdminDashboard() {
               setShowAdd(false);
               setNotice("Product added.");
             }}
-            token={auth.token}
             onError={setError}
           />
         )}
@@ -988,12 +1020,10 @@ function FinancePanel({
 }
 
 function AddProduct({
-  token,
   onClose,
   onCreated,
   onError,
 }: {
-  token: string;
   onClose: () => void;
   onCreated: (product: Product) => void;
   onError: (message: string) => void;
@@ -1036,31 +1066,46 @@ function AddProduct({
     const values = new FormData(event.currentTarget);
     setSaving(true);
     try {
-      const upload = new FormData();
-      upload.append("image", file);
-      const { url } = await request<{ url: string }>("/uploads/image", token, {
-        method: "POST",
-        body: upload,
+      const extensions: Record<string, string> = {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/webp": "webp",
+      };
+      const extension = extensions[file.type] ?? "png";
+      const path = `products/${crypto.randomUUID()}.${extension}`;
+      const storage = supabase().storage.from("product-images");
+      const { error: uploadError } = await storage.upload(path, file, {
+        contentType: file.type,
+        cacheControl: "31536000",
       });
-      const product = await request<Product>("/products", token, {
-        method: "POST",
-        body: {
-          category: values.get("category"),
-          name: String(values.get("name")),
-          type: values.get("type"),
-          description: String(values.get("description")),
-          basePrice: Number(values.get("basePrice")),
-          stock: Number(values.get("stock")),
-          colors: ["Black"],
-          fabrics: [{ name: "Cotton", price: 0 }],
-          sizes: ["S", "M", "L", "XL"],
-          images: [url],
-          active: true,
-        },
-      });
+      if (uploadError) throw uploadError;
+      const url = storage.getPublicUrl(path).data.publicUrl;
+      const input = {
+        category: values.get("category"),
+        name: String(values.get("name")),
+        type: values.get("type"),
+        description: String(values.get("description")),
+        basePrice: Number(values.get("basePrice")),
+        stock: Number(values.get("stock")),
+        colors: ["Black"],
+        fabrics: [{ name: "Cotton", price: 0 }],
+        sizes: ["S", "M", "L", "XL"],
+        images: [url],
+        active: true,
+      } as unknown as Partial<Product>;
+      const { data, error: insertError } = await supabase()
+        .from("products")
+        .insert(toProductRow(input))
+        .select("*")
+        .single();
+      if (insertError) {
+        await storage.remove([path]);
+        throw insertError;
+      }
+      const product = mapProduct(data);
       onCreated(product);
     } catch (saveError) {
-      onError(saveError instanceof Error ? saveError.message : "Unable to add product.");
+      onError(friendlyError(saveError, "Unable to add product."));
     } finally {
       setSaving(false);
     }

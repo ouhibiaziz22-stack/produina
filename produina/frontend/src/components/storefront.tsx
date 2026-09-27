@@ -13,7 +13,16 @@ import {
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { apiRequest, clearAuth, readAuth, saveAuth, type AuthState } from "@/lib/api";
+import {
+  currentProfile,
+  fetchActiveProducts,
+  friendlyError,
+  signIn,
+  signOut,
+  signUp,
+  submitPreorder,
+  type Profile,
+} from "@/lib/supabase";
 import heroImage from "@/assets/azix-hero.jpg";
 import hoodieImage from "@/assets/hoodie.jpg";
 import teeImage from "@/assets/tee.jpg";
@@ -467,7 +476,8 @@ export function Storefront({ view }: { view: View }) {
   const [bulkQuantity, setBulkQuantity] = useState(20);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authNotice, setAuthNotice] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState("");
 
@@ -479,22 +489,24 @@ export function Storefront({ view }: { view: View }) {
       /* Ignore an invalid local cart. */
     }
   }, []);
-  useEffect(() => setAuth(readAuth()), []);
+  useEffect(() => {
+    currentProfile()
+      .then(setProfile)
+      .catch(() => setProfile(null));
+  }, []);
   useEffect(() => {
     let cancelled = false;
     setProductsLoading(true);
     setProductsError("");
 
-    apiRequest<ApiProduct[]>("/products")
-      .then((remoteProducts) => {
+    fetchActiveProducts()
+      .then((remoteProducts: ApiProduct[]) => {
         if (cancelled || remoteProducts.length === 0) return;
         setProducts(remoteProducts.map(toStorefrontProduct));
       })
       .catch((requestError) => {
         if (cancelled) return;
-        setProductsError(
-          requestError instanceof Error ? requestError.message : "Unable to load products.",
-        );
+        setProductsError(friendlyError(requestError, "Unable to load products."));
       })
       .finally(() => {
         if (!cancelled) setProductsLoading(false);
@@ -518,12 +530,13 @@ export function Storefront({ view }: { view: View }) {
   function openAuth(mode: "login" | "register" = "login") {
     setAuthMode(mode);
     setAuthError("");
+    setAuthNotice("");
     setAuthOpen(true);
   }
 
-  function logout() {
-    clearAuth();
-    setAuth(null);
+  async function logout() {
+    await signOut().catch(() => undefined);
+    setProfile(null);
   }
 
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
@@ -531,33 +544,35 @@ export function Storefront({ view }: { view: View }) {
     if (authSubmitting) return;
     setAuthSubmitting(true);
     setAuthError("");
+    setAuthNotice("");
     const values = new FormData(event.currentTarget);
-    const body = {
-      ...(authMode === "register" ? { name: String(values.get("name") || "").trim() } : {}),
-      email: String(values.get("email") || "")
-        .trim()
-        .toLowerCase(),
-      ...(authMode === "register" ? { phone: String(values.get("phone") || "").trim() } : {}),
-      password: String(values.get("password") || ""),
-    };
+    const field = (name: string) => String(values.get(name) || "").trim();
+    const email = field("email").toLowerCase();
+    const password = String(values.get("password") || "");
     try {
-      const nextAuth = await apiRequest<AuthState>(`/auth/${authMode}`, {
-        method: "POST",
-        body,
-      });
-      if (!nextAuth?.token || !nextAuth.user) {
-        throw new Error("Unable to authenticate. Please try again.");
+      if (authMode === "login") {
+        const next = await signIn(email, password);
+        setProfile(next);
+        setAuthOpen(false);
+        if (next.role === "admin") void navigate({ to: "/admin" });
+        return;
       }
-      saveAuth(nextAuth);
-      setAuth(nextAuth);
-      setAuthOpen(false);
-      if (nextAuth.user.role === "admin") {
-        void navigate({ to: "/admin" });
+      const phone = field("phone");
+      const next = await signUp({
+        name: field("name"),
+        email,
+        password,
+        ...(phone ? { phone } : {}),
+      });
+      if (next) {
+        setProfile(next);
+        setAuthOpen(false);
+      } else {
+        setAuthMode("login");
+        setAuthNotice("Check your inbox to confirm your email, then log in.");
       }
     } catch (requestError) {
-      setAuthError(
-        requestError instanceof Error ? requestError.message : "Unable to authenticate.",
-      );
+      setAuthError(friendlyError(requestError, "Unable to authenticate."));
     } finally {
       setAuthSubmitting(false);
     }
@@ -637,15 +652,11 @@ export function Storefront({ view }: { view: View }) {
             quantity: bulkQuantity,
           };
     try {
-      await apiRequest("/preorders", { method: "POST", body, token: auth?.token });
+      await submitPreorder(body);
       setSubmitted(true);
       if (formOpen === "preorder") setCart([]);
     } catch (submitError) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "We couldn't send your request. Please try again.",
-      );
+      setError(friendlyError(submitError, "We couldn't send your request. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -681,7 +692,7 @@ export function Storefront({ view }: { view: View }) {
           >
             BAC 2K27 <Zap size={12} fill="currentColor" />
           </Link>
-          {auth?.user.role === "admin" && (
+          {profile?.role === "admin" && (
             <Link to="/admin" onClick={() => setMobileOpen(false)}>
               DASHBOARD
             </Link>
@@ -689,9 +700,14 @@ export function Storefront({ view }: { view: View }) {
         </nav>
         <div className="header-actions">
           <span className="header-edition">EST. FOR WHAT'S NEXT</span>
-          {auth ? (
-            <Button variant="ghost" className="auth-trigger" onClick={logout} aria-label="Log out">
-              {(auth.user.name.split(" ")[0] ?? "").toUpperCase()} / LOG OUT
+          {profile ? (
+            <Button
+              variant="ghost"
+              className="auth-trigger"
+              onClick={() => void logout()}
+              aria-label="Log out"
+            >
+              {(profile.name.split(" ")[0] ?? "").toUpperCase()} / LOG OUT
             </Button>
           ) : (
             <Button
@@ -1379,6 +1395,7 @@ export function Storefront({ view }: { view: View }) {
                   minLength={8}
                 />
               </label>
+              {authNotice && <p className="form-notice">{authNotice}</p>}
               {authError && (
                 <p className="form-error" role="alert">
                   {authError}
