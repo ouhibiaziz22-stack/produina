@@ -462,8 +462,6 @@ function ElectricBadge() {
 export function Storefront({ view }: { view: View }) {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>(fallbackProducts);
-  const [productsLoading, setProductsLoading] = useState(true);
-  const [productsError, setProductsError] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -496,20 +494,15 @@ export function Storefront({ view }: { view: View }) {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    setProductsLoading(true);
-    setProductsError("");
-
+    // The built-in catalog is already on screen, so a failed refresh is logged, never shown
+    // to shoppers. Errors that need their attention appear on the forms they submit.
     fetchActiveProducts()
       .then((remoteProducts: ApiProduct[]) => {
         if (cancelled || remoteProducts.length === 0) return;
         setProducts(remoteProducts.map(toStorefrontProduct));
       })
       .catch((requestError) => {
-        if (cancelled) return;
-        setProductsError(friendlyError(requestError, "Unable to load products."));
-      })
-      .finally(() => {
-        if (!cancelled) setProductsLoading(false);
+        if (!cancelled) console.warn("Showing the built-in catalog:", requestError);
       });
 
     return () => {
@@ -740,11 +733,6 @@ export function Storefront({ view }: { view: View }) {
           </Button>
         </div>
       </header>
-
-      {productsLoading && <p className="storefront-status">Loading latest products...</p>}
-      {productsError && (
-        <p className="storefront-status storefront-status-error">{productsError}</p>
-      )}
 
       {view === "home" && (
         <main>
