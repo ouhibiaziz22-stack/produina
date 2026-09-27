@@ -193,6 +193,14 @@ const money = (value: number) =>
 // v2: product IDs are database UUIDs now, so bags saved with the old string IDs are dropped.
 const cartKey = "azix-cart-v2";
 
+// Accepts the ways people actually type Tunisian numbers ("50548454", "50 548 454",
+// "+216 50 548 454", "0021650548454") and returns "+216 50 548 454", or null if invalid.
+function normalizeTunisianPhone(value: string) {
+  const digits = value.replace(/[\s().-]/g, "").replace(/^(\+216|00216)/, "");
+  if (!/^[2-9]\d{7}$/.test(digits)) return null;
+  return `+216 ${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+}
+
 function customizationKey(customization?: BacCustomization) {
   return customization ? JSON.stringify(customization) : "";
 }
@@ -616,6 +624,12 @@ export function Storefront({ view }: { view: View }) {
     setError("");
     const values = new FormData(event.currentTarget);
     const field = (name: string) => String(values.get(name) || "").trim();
+    const phone = normalizeTunisianPhone(field("phone"));
+    if (formOpen === "preorder" && !phone) {
+      setError("Enter a Tunisian phone number, for example 50 548 454.");
+      setSubmitting(false);
+      return;
+    }
     const contact = {
       name: field("name"),
       email: field("email"),
@@ -627,7 +641,7 @@ export function Storefront({ view }: { view: View }) {
         ? {
             ...contact,
             requestType: "preorder",
-            phone: field("phone"),
+            phone,
             governorate: field("governorate"),
             items: cart
               .filter((item) => products.some((p) => p.id === item.id))
@@ -1199,8 +1213,10 @@ export function Storefront({ view }: { view: View }) {
                         <input
                           name="phone"
                           required
-                          pattern="^\\+216\\s?[2-9]\\d\\s?\\d{3}\\s?\\d{3}$"
-                          placeholder="+216 20 123 456"
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          placeholder="50 123 456"
                         />
                       </label>
                       <label>
