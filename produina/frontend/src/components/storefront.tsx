@@ -8,6 +8,7 @@ import {
   Menu,
   Minus,
   Plus,
+  Search,
   ShoppingBag,
   X,
   Zap,
@@ -478,6 +479,8 @@ export function Storefront({ view }: { view: View }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [customizing, setCustomizing] = useState<{ product: Product; size: string } | null>(null);
   const [bulkQuantity, setBulkQuantity] = useState(20);
   const [authOpen, setAuthOpen] = useState(false);
@@ -672,6 +675,14 @@ export function Storefront({ view }: { view: View }) {
   const catalog = products.filter(
     (product) => product.category === (view === "bac" ? "bac" : "main"),
   );
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+  const displayedCatalog = normalizedSearch
+    ? catalog.filter((product) =>
+        [product.name, product.type, product.category].some((value) =>
+          value.toLowerCase().includes(normalizedSearch),
+        ),
+      )
+    : catalog;
   const handleAdd = (product: Product, size: string) =>
     view === "bac" ? setCustomizing({ product, size }) : addToCart(product, size);
   return (
@@ -699,6 +710,16 @@ export function Storefront({ view }: { view: View }) {
           >
             BAC 2K27 <Zap size={12} fill="currentColor" />
           </Link>
+          <button
+            type="button"
+            className={`nav-search ${searchOpen ? "active" : ""}`}
+            onClick={() => setSearchOpen((open) => !open)}
+            aria-expanded={searchOpen}
+            aria-controls="product-search"
+          >
+            <Search size={12} />
+            SEARCH
+          </button>
           {profile?.role === "admin" && (
             <Link to="/admin" onClick={() => setMobileOpen(false)}>
               DASHBOARD
@@ -747,6 +768,27 @@ export function Storefront({ view }: { view: View }) {
           </Button>
         </div>
       </header>
+      {searchOpen && (
+        <div className="search-panel" id="product-search">
+          <label htmlFor="product-search-input">SEARCH PRODUCTS</label>
+          <div className="search-input-wrap">
+            <Search size={16} aria-hidden="true" />
+            <input
+              id="product-search-input"
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by name, type, or category"
+              autoFocus
+            />
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear search">
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {view === "home" && (
         <main>
@@ -821,7 +863,7 @@ export function Storefront({ view }: { view: View }) {
               </div>
             </div>
             <div className="product-grid">
-              {catalog.map((p) => (
+              {displayedCatalog.map((p) => (
                 <ProductCard
                   product={p}
                   onAdd={addToCart}
@@ -871,7 +913,9 @@ export function Storefront({ view }: { view: View }) {
               <i>COLLECTION.</i>
             </h1>
             <p>Oversized silhouettes. Heavyweight feel. Nothing extra, everything intentional.</p>
-            <span className="intro-number">001 — {String(catalog.length).padStart(3, "0")}</span>
+            <span className="intro-number">
+              001 — {String(displayedCatalog.length).padStart(3, "0")}
+            </span>
           </section>
           <Ticker />
           <section className="collection-section catalog-section">
@@ -886,11 +930,13 @@ export function Storefront({ view }: { view: View }) {
               </div>
               <div className="section-aside">
                 <p>Find your fit. Select your size. Make it yours.</p>
-                <span className="item-count">{String(catalog.length).padStart(2, "0")} PIECES</span>
+                <span className="item-count">
+                  {String(displayedCatalog.length).padStart(2, "0")} PIECES
+                </span>
               </div>
             </div>
             <div className="product-grid">
-              {catalog.map((p) => (
+              {displayedCatalog.map((p) => (
                 <ProductCard
                   product={p}
                   onAdd={addToCart}
