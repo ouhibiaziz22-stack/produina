@@ -11,6 +11,7 @@ import {
   LogOut,
   Package,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   ShoppingCart,
@@ -52,11 +53,27 @@ type Preorder = {
     customization?: { studentName: string; lycee: string; section: string } | null;
   }>;
 };
+type OrderLine = {
+  product: string;
+  size?: string;
+  quantity: number;
+  unitPrice?: number;
+  lineTotal?: number;
+  customization?: { studentName: string; lycee: string; section: string } | null;
+};
 type Order = {
   id: string;
   total: number;
+  subtotal: number;
+  extras: number;
   status: string;
   created_at: string;
+  items: OrderLine[];
+  shippingAddress: string;
+  governorate: string;
+  phone: string;
+  paymentMethod: string;
+  sourcePreorderId?: string;
   users?: { name?: string; email?: string } | undefined;
 };
 type AdminUser = { id: string; name: string; email: string; role: string; createdAt?: string };
@@ -93,7 +110,7 @@ async function fetchAdminData() {
     db.from("products").select("*").order("created_at", { ascending: false }),
     db
       .from("orders")
-      .select("id,total,status,created_at,profiles(name,email)")
+      .select("*,profiles(name,email)")
       .order("created_at", { ascending: false })
       .limit(1000),
     db
@@ -111,8 +128,17 @@ async function fetchAdminData() {
       return {
         id: row.id,
         total: Number(row.total),
+        subtotal: Number(row.subtotal ?? row.total),
+        extras: Number(row.extras ?? 0),
         status: row.status,
         created_at: row.created_at,
+        items: Array.isArray(row.items) ? (row.items as OrderLine[]) : [],
+        shippingAddress: String(row.shipping_address ?? ""),
+        governorate: String(row.governorate ?? ""),
+        phone: String(row.phone ?? ""),
+        paymentMethod: String(row.payment_method ?? ""),
+        sourcePreorderId:
+          typeof row.source_preorder_id === "string" ? row.source_preorder_id : undefined,
         users: customer ?? undefined,
       } as Order;
     }),
@@ -148,6 +174,7 @@ export function AdminDashboard() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
 
   useEffect(() => {
     currentProfile()
@@ -260,6 +287,21 @@ export function AdminDashboard() {
 
   async function updatePreorder(id: string, status: string) {
     try {
+      if (status === "confirmed") {
+        if (
+          !window.confirm("Confirm this pre-order and create an order with the customer's details?")
+        ) {
+          return;
+        }
+        const { error: confirmationError } = await supabase().rpc("confirm_preorder", {
+          target_preorder_id: id,
+        });
+        if (confirmationError) throw confirmationError;
+        await loadData();
+        setSection("orders");
+        setNotice("Pre-order confirmed and added to the order queue.");
+        return;
+      }
       const { data, error: preorderError } = await supabase()
         .from("preorder_requests")
         .update({ status })
@@ -518,9 +560,16 @@ export function AdminDashboard() {
             onRemove={removeProduct}
           />
         )}
-        {section === "orders" && <OrdersPanel orders={orders} onUpdate={updateOrder} />}
+        {section === "orders" && (
+          <OrdersPanel
+            orders={orders}
+            preorders={preorders}
+            onUpdate={updateOrder}
+            onPrint={setReceiptOrder}
+          />
+        )}
         {section === "preorders" && (
-          <PreordersPanel preorders={preorders} onUpdate={updatePreorder} />
+          <PreordersPanel preorders={preorders} orders={orders} onUpdate={updatePreorder} />
         )}
         {section === "users" && (
           <UsersPanel users={users} currentUserId={admin.id} onRoleChange={updateRole} />
@@ -535,6 +584,13 @@ export function AdminDashboard() {
               setNotice("Product added.");
             }}
             onError={setError}
+          />
+        )}
+        {receiptOrder && (
+          <OrderReceipt
+            order={receiptOrder}
+            preorder={preorders.find((item) => item.id === receiptOrder.sourcePreorderId)}
+            onClose={() => setReceiptOrder(null)}
           />
         )}
       </section>
@@ -701,6 +757,7 @@ function ProductsPanel({
           <thead>
             <tr>
               <th>Product</th>
+              <th>Colors</th>
               <th>Price</th>
               <th>Stock</th>
               <th>Shop visibility</th>
@@ -715,6 +772,18 @@ function ProductsPanel({
                   <small>
                     {product.category.toUpperCase()} / {product.type}
                   </small>
+                </td>
+                <td>
+                  <div
+                    className="product-colors"
+                    aria-label={`Available colors: ${product.colors.join(", ")}`}
+                  >
+                    {product.colors.length > 0 ? (
+                      product.colors.map((color) => <span key={color}>{color}</span>)
+                    ) : (
+                      <small>No colors set</small>
+                    )}
+                  </div>
                 </td>
                 <td>{money(product.basePrice)}</td>
                 <td>
@@ -761,11 +830,16 @@ function ProductsPanel({
 
 function OrdersPanel({
   orders,
+  preorders,
   onUpdate,
+  onPrint,
 }: {
   orders: Order[];
+  preorders: Preorder[];
   onUpdate: (id: string, status: string) => void;
+  onPrint: (order: Order) => void;
 }) {
+  const preordersById = new Map(preorders.map((item) => [item.id, item]));
   return (
     <div className="admin-panel admin-table-panel">
       <div className="panel-heading">
@@ -780,38 +854,66 @@ function OrdersPanel({
             <tr>
               <th>Order</th>
               <th>Customer</th>
+              <th>Delivery</th>
               <th>Total</th>
               <th>Status</th>
+              <th>Receipt</th>
               <th>Date</th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => (
-              <tr key={order.id}>
-                <td>
-                  <strong>#{order.id.slice(0, 8)}</strong>
-                </td>
-                <td>
-                  {order.users?.name || "Customer"}
-                  <small>{order.users?.email}</small>
-                </td>
-                <td>{money(Number(order.total))}</td>
-                <td>
-                  <select
-                    className={`status-select status-${order.status}`}
-                    value={order.status}
-                    onChange={(event) => onUpdate(order.id, event.target.value)}
-                  >
-                    {statuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status.toUpperCase()}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>{new Date(order.created_at).toLocaleDateString("en-GB")}</td>
-              </tr>
-            ))}
+            {orders.map((order) => {
+              const preorder = order.sourcePreorderId
+                ? preordersById.get(order.sourcePreorderId)
+                : undefined;
+              const customerName = order.users?.name || preorder?.customer_name || "Guest customer";
+              const customerEmail = order.users?.email || preorder?.email;
+              return (
+                <tr
+                  key={order.id}
+                  className={order.status === "cancelled" ? "order-cancelled" : ""}
+                >
+                  <td>
+                    <strong>#{order.id.slice(0, 8)}</strong>
+                  </td>
+                  <td>
+                    <strong>{customerName}</strong>
+                    {customerEmail && <small>{customerEmail}</small>}
+                    {(order.phone || preorder?.phone) && (
+                      <small>{order.phone || preorder?.phone}</small>
+                    )}
+                  </td>
+                  <td>
+                    <strong>
+                      {order.governorate || preorder?.governorate || "To be arranged"}
+                    </strong>
+                    {(order.shippingAddress || preorder?.school) && (
+                      <small>{order.shippingAddress || preorder?.school}</small>
+                    )}
+                  </td>
+                  <td>{money(Number(order.total))}</td>
+                  <td>
+                    <select
+                      className={`status-select status-${order.status}`}
+                      value={order.status}
+                      onChange={(event) => onUpdate(order.id, event.target.value)}
+                    >
+                      {statuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <button className="receipt-button" onClick={() => onPrint(order)}>
+                      <Printer size={15} /> Print
+                    </button>
+                  </td>
+                  <td>{new Date(order.created_at).toLocaleDateString("en-GB")}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {orders.length === 0 && <p className="admin-muted empty-state">No orders yet.</p>}
@@ -822,11 +924,16 @@ function OrdersPanel({
 
 function PreordersPanel({
   preorders,
+  orders,
   onUpdate,
 }: {
   preorders: Preorder[];
+  orders: Order[];
   onUpdate: (id: string, status: string) => void;
 }) {
+  const convertedPreorderIds = new Set(
+    orders.flatMap((order) => (order.sourcePreorderId ? [order.sourcePreorderId] : [])),
+  );
   return (
     <div className="admin-panel admin-table-panel">
       <div className="panel-heading">
@@ -848,9 +955,9 @@ function PreordersPanel({
           </thead>
           <tbody>
             {preorders.map((item) => (
-              <tr key={item.id}>
+              <tr key={item.id} className={item.status === "cancelled" ? "preorder-cancelled" : ""}>
                 <td>
-                  <strong>{item.customer_name}</strong>
+                  <strong className="preorder-customer-name">{item.customer_name}</strong>
                   <small>{item.email}</small>
                   {item.phone && <small>{item.phone}</small>}
                   {(item.governorate || item.school) && (
@@ -885,6 +992,9 @@ function PreordersPanel({
                       </option>
                     ))}
                   </select>
+                  {convertedPreorderIds.has(item.id) && (
+                    <small className="order-created-note">ORDER CREATED</small>
+                  )}
                 </td>
                 <td>{new Date(item.created_at).toLocaleDateString("en-GB")}</td>
               </tr>
@@ -895,6 +1005,129 @@ function PreordersPanel({
           <p className="admin-muted empty-state">No pre-order requests yet.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function OrderReceipt({
+  order,
+  preorder,
+  onClose,
+}: {
+  order: Order;
+  preorder?: Preorder | undefined;
+  onClose: () => void;
+}) {
+  const customerName = order.users?.name || preorder?.customer_name || "Guest customer";
+  const customerEmail = order.users?.email || preorder?.email || "—";
+  const phone = order.phone || preorder?.phone || "—";
+  const governorate = order.governorate || preorder?.governorate || "To be arranged";
+  const address = order.shippingAddress || preorder?.school || "To be arranged";
+
+  return (
+    <div className="receipt-backdrop" onClick={onClose}>
+      <section
+        className="order-receipt"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="receipt-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="receipt-header">
+          <div>
+            <p className="admin-eyebrow">AZIX / ORDER RECEIPT</p>
+            <h2 id="receipt-title">ORDER #{order.id.slice(0, 8).toUpperCase()}</h2>
+          </div>
+          <button className="receipt-close" onClick={onClose} aria-label="Close receipt">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="receipt-status-row">
+          <span className={`receipt-status status-${order.status}`}>
+            {order.status.toUpperCase()}
+          </span>
+          <time dateTime={order.created_at}>
+            {new Date(order.created_at).toLocaleString("en-GB", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </time>
+        </div>
+
+        <div className="receipt-details">
+          <div>
+            <span>Customer</span>
+            <strong>{customerName}</strong>
+            <p>{customerEmail}</p>
+            <p>{phone}</p>
+          </div>
+          <div>
+            <span>Delivery</span>
+            <strong>{governorate}</strong>
+            <p>{address}</p>
+            {order.paymentMethod && <p>{order.paymentMethod.replaceAll("_", " ")}</p>}
+          </div>
+        </div>
+
+        {preorder?.notes && (
+          <div className="receipt-notes">
+            <span>Customer note</span>
+            <p>{preorder.notes}</p>
+          </div>
+        )}
+
+        <div className="receipt-items">
+          <div className="receipt-item-heading">
+            <span>Item</span>
+            <span>Qty.</span>
+            <span>Total</span>
+          </div>
+          {order.items.length > 0 ? (
+            order.items.map((item, index) => (
+              <div className="receipt-item" key={`${item.product}-${index}`}>
+                <div>
+                  <strong>{item.product}</strong>
+                  <p>
+                    {item.size ? `Size ${item.size}` : "Size to be confirmed"}
+                    {item.customization
+                      ? ` · ${item.customization.studentName}, ${item.customization.lycee}, ${item.customization.section}`
+                      : ""}
+                  </p>
+                </div>
+                <span>× {item.quantity}</span>
+                <strong>
+                  {money(Number(item.lineTotal ?? (item.unitPrice ?? 0) * item.quantity))}
+                </strong>
+              </div>
+            ))
+          ) : (
+            <p className="admin-muted">Item details are not available for this older order.</p>
+          )}
+        </div>
+
+        <div className="receipt-totals">
+          <span>Subtotal</span>
+          <strong>{money(order.subtotal)}</strong>
+          {order.extras > 0 && (
+            <>
+              <span>Extras</span>
+              <strong>{money(order.extras)}</strong>
+            </>
+          )}
+          <span className="receipt-grand-total">Total</span>
+          <strong className="receipt-grand-total">{money(order.total)}</strong>
+        </div>
+
+        <footer className="receipt-actions">
+          <button className="receipt-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button className="admin-primary" onClick={() => window.print()}>
+            <Printer size={16} /> Print receipt
+          </button>
+        </footer>
+      </section>
     </div>
   );
 }
@@ -1064,6 +1297,14 @@ function AddProduct({
       return;
     }
     const values = new FormData(event.currentTarget);
+    const colors = String(values.get("colors") ?? "")
+      .split(",")
+      .map((color) => color.trim())
+      .filter(Boolean);
+    if (colors.length === 0) {
+      onError("Add at least one available product color.");
+      return;
+    }
     setSaving(true);
     try {
       const extensions: Record<string, string> = {
@@ -1087,7 +1328,7 @@ function AddProduct({
         description: String(values.get("description")),
         basePrice: Number(values.get("basePrice")),
         stock: Number(values.get("stock")),
-        colors: ["Black"],
+        colors,
         fabrics: [{ name: "Cotton", price: 0 }],
         sizes: ["S", "M", "L", "XL"],
         images: [url],
@@ -1157,6 +1398,11 @@ function AddProduct({
               <input name="stock" type="number" min="0" required />
             </label>
           </div>
+          <label>
+            Available colors
+            <input name="colors" required defaultValue="Black" placeholder="Black, White, Navy" />
+            <small className="admin-field-help">Separate each color with a comma.</small>
+          </label>
           <label>
             Description
             <textarea

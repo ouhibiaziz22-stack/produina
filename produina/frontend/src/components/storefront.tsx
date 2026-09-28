@@ -6,9 +6,11 @@ import {
   ArrowUpRight,
   Check,
   Menu,
+  MessageCircle,
   Minus,
   Plus,
   Search,
+  Send,
   ShoppingBag,
   X,
   Zap,
@@ -481,6 +483,8 @@ export function Storefront({ view }: { view: View }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpMessage, setHelpMessage] = useState("");
   const [customizing, setCustomizing] = useState<{ product: Product; size: string } | null>(null);
   const [bulkQuantity, setBulkQuantity] = useState(20);
   const [authOpen, setAuthOpen] = useState(false);
@@ -536,6 +540,12 @@ export function Storefront({ view }: { view: View }) {
     setAuthError("");
     setAuthNotice("");
     setAuthOpen(true);
+  }
+
+  function openWhatsApp() {
+    const message = helpMessage.trim() || "Hello AZIX, I have a question.";
+    const url = `https://wa.me/21624807835?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   async function logout() {
@@ -710,16 +720,6 @@ export function Storefront({ view }: { view: View }) {
           >
             BAC 2K27 <Zap size={12} fill="currentColor" />
           </Link>
-          <button
-            type="button"
-            className={`nav-search ${searchOpen ? "active" : ""}`}
-            onClick={() => setSearchOpen((open) => !open)}
-            aria-expanded={searchOpen}
-            aria-controls="product-search"
-          >
-            <Search size={12} />
-            SEARCH
-          </button>
           {profile?.role === "admin" && (
             <Link to="/admin" onClick={() => setMobileOpen(false)}>
               DASHBOARD
@@ -728,6 +728,16 @@ export function Storefront({ view }: { view: View }) {
         </nav>
         <div className="header-actions">
           <span className="header-edition">EST. FOR WHAT'S NEXT</span>
+          <button
+            type="button"
+            className={`nav-search ${searchOpen ? "active" : ""}`}
+            onClick={() => setSearchOpen((open) => !open)}
+            aria-expanded={searchOpen}
+            aria-controls="product-search"
+          >
+            <Search size={15} />
+            <span>SEARCH</span>
+          </button>
           {profile ? (
             <Button
               variant="ghost"
@@ -1064,6 +1074,72 @@ export function Storefront({ view }: { view: View }) {
           </span>
         </div>
       </footer>
+
+      <aside className="support-widget" aria-label="Contact the AZIX team">
+        {helpOpen && (
+          <div
+            id="support-panel"
+            className="support-panel"
+            role="dialog"
+            aria-labelledby="support-title"
+          >
+            <div className="support-panel-header">
+              <div>
+                <span>AZIX SUPPORT</span>
+                <h2 id="support-title">HOW CAN WE HELP?</h2>
+              </div>
+              <button
+                type="button"
+                className="support-close"
+                aria-label="Close support chat"
+                onClick={() => setHelpOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <p>Ask about sizes, orders, or BAC 2K27. Our team will reply on WhatsApp.</p>
+            <a
+              className="support-number"
+              href="https://wa.me/21624807835"
+              target="_blank"
+              rel="noreferrer"
+            >
+              WHATSAPP: +216 24 807 835
+            </a>
+            <form
+              className="support-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                openWhatsApp();
+              }}
+            >
+              <label htmlFor="support-message">YOUR MESSAGE</label>
+              <div>
+                <input
+                  id="support-message"
+                  type="text"
+                  value={helpMessage}
+                  onChange={(event) => setHelpMessage(event.target.value)}
+                  placeholder="Type your question..."
+                />
+                <button type="submit" aria-label="Send message on WhatsApp">
+                  <Send size={17} />
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+        <button
+          type="button"
+          className="support-trigger"
+          aria-expanded={helpOpen}
+          aria-controls="support-panel"
+          onClick={() => setHelpOpen((open) => !open)}
+        >
+          <MessageCircle size={18} />
+          <span>{helpOpen ? "CLOSE HELP" : "ASK AZIX"}</span>
+        </button>
+      </aside>
 
       {customizing && (
         <BacCustomizer
