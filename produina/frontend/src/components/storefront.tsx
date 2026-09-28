@@ -195,6 +195,28 @@ const money = (value: number) =>
   }).format(value);
 // v2: product IDs are database UUIDs now, so bags saved with the old string IDs are dropped.
 const cartKey = "azix-cart-v2";
+const catalogCacheKey = "azix-catalog-v1";
+const catalogCacheLifetime = 60 * 60 * 1000;
+
+function readCatalogCache(): Product[] | null {
+  try {
+    const cached = JSON.parse(window.localStorage.getItem(catalogCacheKey) || "null") as {
+      savedAt?: unknown;
+      products?: unknown;
+    } | null;
+    if (
+      !cached ||
+      typeof cached.savedAt !== "number" ||
+      Date.now() - cached.savedAt > catalogCacheLifetime ||
+      !Array.isArray(cached.products)
+    ) {
+      return null;
+    }
+    return cached.products as Product[];
+  } catch {
+    return null;
+  }
+}
 
 // Accepts the ways people actually type Tunisian numbers ("50548454", "50 548 454",
 // "+216 50 548 454", "0021650548454") and returns "+216 50 548 454", or null if invalid.
@@ -523,30 +545,32 @@ export function Storefront({ view }: { view: View }) {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
-    // The local launch catalogue is already rendered. Do not let a slow database
-    // connection replace it late and make product cards appear to load for seconds.
-    const deadline = window.setTimeout(() => controller.abort(), 3500);
-    // The built-in catalog is already on screen, so a failed refresh is logged, never shown
-    // to shoppers. Errors that need their attention appear on the forms they submit.
-    fetchActiveProducts(controller.signal)
+    const cachedProducts = readCatalogCache();
+    if (cachedProducts?.length) setProducts(cachedProducts);
+    // The built-in catalogue renders immediately. The background refresh must still
+    // finish, even on a slower network, so items newly added by an administrator appear.
+    fetchActiveProducts()
       .then((remoteProducts: ApiProduct[]) => {
         if (cancelled || remoteProducts.length === 0) return;
-        setProducts(remoteProducts.map(toStorefrontProduct));
-      })
-      .catch((requestError) => {
-        if (!cancelled && !controller.signal.aborted) {
-          console.warn("Showing the built-in catalog:", requestError);
+        const refreshedProducts = remoteProducts.map(toStorefrontProduct);
+        setProducts(refreshedProducts);
+        try {
+          window.localStorage.setItem(
+            catalogCacheKey,
+            JSON.stringify({ savedAt: Date.now(), products: refreshedProducts }),
+          );
+        } catch {
+          // Browsers can disable storage; the fresh in-memory catalogue still works.
         }
       })
-      .finally(() => {
-        window.clearTimeout(deadline);
+      .catch((requestError) => {
+        if (!cancelled) {
+          console.warn("Showing the built-in catalog:", requestError);
+        }
       });
 
     return () => {
       cancelled = true;
-      controller.abort();
-      window.clearTimeout(deadline);
     };
   }, []);
   useEffect(() => {
