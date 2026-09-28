@@ -245,22 +245,36 @@ function ProductCard({
   product,
   onAdd,
   onViewDetails,
+  priority = false,
 }: {
   product: Product;
   onAdd: (product: Product, size: string) => void;
   onViewDetails: (product: Product) => void;
+  priority?: boolean;
 }) {
   const [size, setSize] = useState("");
   const [prompt, setPrompt] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const fallbackImage = imageByType[product.type.toLowerCase()] || cargoImage;
   return (
     <article className="product-card">
-      <div className="product-image-wrap">
+      <div
+        className={`product-image-wrap ${imageLoaded ? "image-loaded" : ""}`}
+        style={{ backgroundImage: `url("${fallbackImage}")` }}
+      >
         <img
           src={product.image}
           alt={product.name.toLowerCase()}
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
+          decoding="async"
           width={768}
           height={1024}
+          onLoad={() => setImageLoaded(true)}
+          onError={(event) => {
+            event.currentTarget.onerror = null;
+            event.currentTarget.src = fallbackImage;
+          }}
         />
         <button
           type="button"
@@ -509,19 +523,30 @@ export function Storefront({ view }: { view: View }) {
   }, []);
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    // The local launch catalogue is already rendered. Do not let a slow database
+    // connection replace it late and make product cards appear to load for seconds.
+    const deadline = window.setTimeout(() => controller.abort(), 3500);
     // The built-in catalog is already on screen, so a failed refresh is logged, never shown
     // to shoppers. Errors that need their attention appear on the forms they submit.
-    fetchActiveProducts()
+    fetchActiveProducts(controller.signal)
       .then((remoteProducts: ApiProduct[]) => {
         if (cancelled || remoteProducts.length === 0) return;
         setProducts(remoteProducts.map(toStorefrontProduct));
       })
       .catch((requestError) => {
-        if (!cancelled) console.warn("Showing the built-in catalog:", requestError);
+        if (!cancelled && !controller.signal.aborted) {
+          console.warn("Showing the built-in catalog:", requestError);
+        }
+      })
+      .finally(() => {
+        window.clearTimeout(deadline);
       });
 
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(deadline);
     };
   }, []);
   useEffect(() => {
@@ -873,12 +898,13 @@ export function Storefront({ view }: { view: View }) {
               </div>
             </div>
             <div className="product-grid">
-              {displayedCatalog.map((p) => (
+              {displayedCatalog.map((p, index) => (
                 <ProductCard
                   product={p}
                   onAdd={addToCart}
                   onViewDetails={setSelectedProduct}
                   key={p.id}
+                  priority={index < 2}
                 />
               ))}
             </div>
@@ -946,12 +972,13 @@ export function Storefront({ view }: { view: View }) {
               </div>
             </div>
             <div className="product-grid">
-              {displayedCatalog.map((p) => (
+              {displayedCatalog.map((p, index) => (
                 <ProductCard
                   product={p}
                   onAdd={addToCart}
                   onViewDetails={setSelectedProduct}
                   key={p.id}
+                  priority={index < 2}
                 />
               ))}
             </div>
@@ -1019,12 +1046,13 @@ export function Storefront({ view }: { view: View }) {
               </div>
             </div>
             <div className="product-grid capsule-grid">
-              {catalog.map((p) => (
+              {catalog.map((p, index) => (
                 <ProductCard
                   product={p}
                   onAdd={handleAdd}
                   onViewDetails={setSelectedProduct}
                   key={p.id}
+                  priority={index < 2}
                 />
               ))}
               <div className="bulk-panel">

@@ -1445,15 +1445,22 @@ textarea {
   position: relative;
   overflow: hidden;
   background: var(--muted);
+  background-position: center;
+  background-size: cover;
   aspect-ratio: 3 / 3.85;
 }
 .product-image-wrap img {
   height: 100%;
   width: 100%;
   object-fit: cover;
+  opacity: 0;
   transition:
+    opacity 0.2s ease,
     transform 0.45s ease,
     filter 0.45s ease;
+}
+.product-image-wrap.image-loaded img {
+  opacity: 1;
 }
 .product-details-trigger {
   position: absolute;

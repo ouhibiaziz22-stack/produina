@@ -85,15 +85,20 @@ export function friendlyError(
   if (/user already registered/i.test(message)) return "An account already exists for this email.";
   if (/row-level security|permission denied/i.test(message))
     return "You don't have access to do that.";
+  if (/could not find the function public\.confirm_preorder/i.test(message)) {
+    return "Order confirmation needs the latest database migration. Apply the latest Supabase migration, then try again.";
+  }
   return message;
 }
 
-export async function fetchActiveProducts(): Promise<Product[]> {
-  const { data, error } = await supabase()
+export async function fetchActiveProducts(signal?: AbortSignal): Promise<Product[]> {
+  const query = supabase()
     .from("products")
     .select("*")
     .eq("active", true)
     .order("created_at", { ascending: true });
+  if (signal) query.abortSignal(signal);
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(mapProduct);
 }

@@ -270,22 +270,37 @@ export function AdminDashboard() {
   }
 
   async function updateOrder(id: string, status: string) {
+    const previous = orders.find((order) => order.id === id);
+    if (!previous || previous.status === status) return;
+
+    // Paint the selected status before the network round-trip completes.
+    setOrders((current) =>
+      current.map((order) => (order.id === id ? { ...order, status } : order)),
+    );
     try {
       const { error: orderError } = await supabase()
         .from("orders")
         .update({ status, updated_at: new Date().toISOString() })
         .eq("id", id);
       if (orderError) throw orderError;
-      setOrders((current) =>
-        current.map((order) => (order.id === id ? { ...order, status } : order)),
-      );
       setNotice(`Order marked ${status}.`);
     } catch (orderError) {
+      // Do not overwrite a newer change made while this request was in flight.
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === id && order.status === status
+            ? { ...order, status: previous.status }
+            : order,
+        ),
+      );
       setError(friendlyError(orderError, "Unable to update order."));
     }
   }
 
   async function updatePreorder(id: string, status: string) {
+    const previous = preorders.find((item) => item.id === id);
+    if (!previous || previous.status === status) return;
+
     try {
       if (status === "confirmed") {
         if (
@@ -293,6 +308,9 @@ export function AdminDashboard() {
         ) {
           return;
         }
+        setPreorders((current) =>
+          current.map((item) => (item.id === id ? { ...item, status } : item)),
+        );
         const { error: confirmationError } = await supabase().rpc("confirm_preorder", {
           target_preorder_id: id,
         });
@@ -302,18 +320,22 @@ export function AdminDashboard() {
         setNotice("Pre-order confirmed and added to the order queue.");
         return;
       }
-      const { data, error: preorderError } = await supabase()
+      // The select is controlled, so update it immediately instead of waiting for Supabase.
+      setPreorders((current) =>
+        current.map((item) => (item.id === id ? { ...item, status } : item)),
+      );
+      const { error: preorderError } = await supabase()
         .from("preorder_requests")
         .update({ status })
-        .eq("id", id)
-        .select("*")
-        .single();
+        .eq("id", id);
       if (preorderError) throw preorderError;
-      setPreorders((current) =>
-        current.map((item) => (item.id === id ? (data as Preorder) : item)),
-      );
       setNotice(`Pre-order marked ${status}.`);
     } catch (preorderError) {
+      setPreorders((current) =>
+        current.map((item) =>
+          item.id === id && item.status === status ? { ...item, status: previous.status } : item,
+        ),
+      );
       setError(friendlyError(preorderError, "Unable to update pre-order."));
     }
   }
