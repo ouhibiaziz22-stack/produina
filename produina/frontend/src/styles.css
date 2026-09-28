@@ -569,6 +569,10 @@ html {
   font-weight: 800;
   letter-spacing: 0.04em;
 }
+.status-select:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
 .status-new,
 .status-confirmed {
   color: #9a5f13;
@@ -597,6 +601,13 @@ html {
 .order-created-note {
   margin-top: 7px !important;
   color: #337340 !important;
+  font-size: 9px !important;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.status-saving {
+  margin-top: 7px !important;
+  color: var(--soft-ink) !important;
   font-size: 9px !important;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -1001,6 +1012,17 @@ html {
   .panel-actions {
     justify-content: space-between;
   }
+  .order-receipt {
+    padding: 22px 18px;
+  }
+  .receipt-details {
+    grid-template-columns: 1fr;
+  }
+  .receipt-item-heading,
+  .receipt-item {
+    grid-template-columns: minmax(0, 1fr) 42px 72px;
+    gap: 8px;
+  }
 }
 body {
   margin: 0;
@@ -1010,6 +1032,14 @@ a,
 input,
 textarea {
   -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
 }
 .site-shell {
   overflow: clip;

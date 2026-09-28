@@ -175,6 +175,8 @@ export function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [receiptOrder, setReceiptOrder] = useState<Order | null>(null);
+  const [updatingOrderIds, setUpdatingOrderIds] = useState<string[]>([]);
+  const [updatingPreorderIds, setUpdatingPreorderIds] = useState<string[]>([]);
 
   useEffect(() => {
     currentProfile()
@@ -271,9 +273,10 @@ export function AdminDashboard() {
 
   async function updateOrder(id: string, status: string) {
     const previous = orders.find((order) => order.id === id);
-    if (!previous || previous.status === status) return;
+    if (!previous || previous.status === status || updatingOrderIds.includes(id)) return;
 
     // Paint the selected status before the network round-trip completes.
+    setUpdatingOrderIds((current) => [...current, id]);
     setOrders((current) =>
       current.map((order) => (order.id === id ? { ...order, status } : order)),
     );
@@ -294,20 +297,24 @@ export function AdminDashboard() {
         ),
       );
       setError(friendlyError(orderError, "Unable to update order."));
+    } finally {
+      setUpdatingOrderIds((current) => current.filter((currentId) => currentId !== id));
     }
   }
 
   async function updatePreorder(id: string, status: string) {
     const previous = preorders.find((item) => item.id === id);
-    if (!previous || previous.status === status) return;
+    if (!previous || previous.status === status || updatingPreorderIds.includes(id)) return;
+    const linkedOrder = orders.find((order) => order.sourcePreorderId === id);
 
     try {
-      if (status === "confirmed") {
+      if (status === "confirmed" && previous.request_type === "preorder") {
         if (
           !window.confirm("Confirm this pre-order and create an order with the customer's details?")
         ) {
           return;
         }
+        setUpdatingPreorderIds((current) => [...current, id]);
         setPreorders((current) =>
           current.map((item) => (item.id === id ? { ...item, status } : item)),
         );
@@ -321,22 +328,43 @@ export function AdminDashboard() {
         return;
       }
       // The select is controlled, so update it immediately instead of waiting for Supabase.
+      setUpdatingPreorderIds((current) => [...current, id]);
       setPreorders((current) =>
         current.map((item) => (item.id === id ? { ...item, status } : item)),
       );
+      if (status === "cancelled" && linkedOrder) {
+        setOrders((current) =>
+          current.map((order) =>
+            order.id === linkedOrder.id ? { ...order, status: "cancelled" } : order,
+          ),
+        );
+      }
       const { error: preorderError } = await supabase()
         .from("preorder_requests")
         .update({ status })
         .eq("id", id);
       if (preorderError) throw preorderError;
-      setNotice(`Pre-order marked ${status}.`);
+      setNotice(
+        `${previous.request_type === "bulk" ? "Bulk inquiry" : "Pre-order"} marked ${status}.`,
+      );
     } catch (preorderError) {
       setPreorders((current) =>
         current.map((item) =>
           item.id === id && item.status === status ? { ...item, status: previous.status } : item,
         ),
       );
+      if (status === "cancelled" && linkedOrder) {
+        setOrders((current) =>
+          current.map((order) =>
+            order.id === linkedOrder.id && order.status === "cancelled"
+              ? { ...order, status: linkedOrder.status }
+              : order,
+          ),
+        );
+      }
       setError(friendlyError(preorderError, "Unable to update pre-order."));
+    } finally {
+      setUpdatingPreorderIds((current) => current.filter((currentId) => currentId !== id));
     }
   }
 
@@ -588,10 +616,16 @@ export function AdminDashboard() {
             preorders={preorders}
             onUpdate={updateOrder}
             onPrint={setReceiptOrder}
+            updatingIds={updatingOrderIds}
           />
         )}
         {section === "preorders" && (
-          <PreordersPanel preorders={preorders} orders={orders} onUpdate={updatePreorder} />
+          <PreordersPanel
+            preorders={preorders}
+            orders={orders}
+            onUpdate={updatePreorder}
+            updatingIds={updatingPreorderIds}
+          />
         )}
         {section === "users" && (
           <UsersPanel users={users} currentUserId={admin.id} onRoleChange={updateRole} />
@@ -855,11 +889,13 @@ function OrdersPanel({
   preorders,
   onUpdate,
   onPrint,
+  updatingIds,
 }: {
   orders: Order[];
   preorders: Preorder[];
   onUpdate: (id: string, status: string) => void;
   onPrint: (order: Order) => void;
+  updatingIds: string[];
 }) {
   const preordersById = new Map(preorders.map((item) => [item.id, item]));
   return (
@@ -890,6 +926,7 @@ function OrdersPanel({
                 : undefined;
               const customerName = order.users?.name || preorder?.customer_name || "Guest customer";
               const customerEmail = order.users?.email || preorder?.email;
+              const isUpdating = updatingIds.includes(order.id);
               return (
                 <tr
                   key={order.id}
@@ -918,6 +955,8 @@ function OrdersPanel({
                     <select
                       className={`status-select status-${order.status}`}
                       value={order.status}
+                      disabled={isUpdating}
+                      aria-busy={isUpdating}
                       onChange={(event) => onUpdate(order.id, event.target.value)}
                     >
                       {statuses.map((status) => (
@@ -926,6 +965,7 @@ function OrdersPanel({
                         </option>
                       ))}
                     </select>
+                    {isUpdating && <small className="status-saving">SAVING…</small>}
                   </td>
                   <td>
                     <button className="receipt-button" onClick={() => onPrint(order)}>
@@ -948,10 +988,12 @@ function PreordersPanel({
   preorders,
   orders,
   onUpdate,
+  updatingIds,
 }: {
   preorders: Preorder[];
   orders: Order[];
   onUpdate: (id: string, status: string) => void;
+  updatingIds: string[];
 }) {
   const convertedPreorderIds = new Set(
     orders.flatMap((order) => (order.sourcePreorderId ? [order.sourcePreorderId] : [])),
@@ -976,51 +1018,62 @@ function PreordersPanel({
             </tr>
           </thead>
           <tbody>
-            {preorders.map((item) => (
-              <tr key={item.id} className={item.status === "cancelled" ? "preorder-cancelled" : ""}>
-                <td>
-                  <strong className="preorder-customer-name">{item.customer_name}</strong>
-                  <small>{item.email}</small>
-                  {item.phone && <small>{item.phone}</small>}
-                  {(item.governorate || item.school) && (
-                    <small>{[item.governorate, item.school].filter(Boolean).join(" / ")}</small>
-                  )}
-                </td>
-                <td>
-                  <strong>
-                    {item.request_type === "bulk" ? "BULK" : "PRE-ORDER"} × {item.quantity}
-                  </strong>
-                  {item.items.map((line, index) => (
-                    <small key={index}>
-                      {line.product}
-                      {line.size ? ` / ${line.size}` : ""} × {line.quantity}
-                      {line.customization
-                        ? ` — ${line.customization.studentName}, ${line.customization.lycee}, ${line.customization.section}`
-                        : ""}
-                    </small>
-                  ))}
-                  {item.notes && <small>“{item.notes}”</small>}
-                </td>
-                <td>{item.request_type === "bulk" ? "—" : money(Number(item.estimated_total))}</td>
-                <td>
-                  <select
-                    className={`status-select status-${item.status}`}
-                    value={item.status}
-                    onChange={(event) => onUpdate(item.id, event.target.value)}
-                  >
-                    {preorderStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status.toUpperCase()}
-                      </option>
+            {preorders.map((item) => {
+              const isUpdating = updatingIds.includes(item.id);
+              return (
+                <tr
+                  key={item.id}
+                  className={item.status === "cancelled" ? "preorder-cancelled" : ""}
+                >
+                  <td>
+                    <strong className="preorder-customer-name">{item.customer_name}</strong>
+                    <small>{item.email}</small>
+                    {item.phone && <small>{item.phone}</small>}
+                    {(item.governorate || item.school) && (
+                      <small>{[item.governorate, item.school].filter(Boolean).join(" / ")}</small>
+                    )}
+                  </td>
+                  <td>
+                    <strong>
+                      {item.request_type === "bulk" ? "BULK" : "PRE-ORDER"} × {item.quantity}
+                    </strong>
+                    {item.items.map((line, index) => (
+                      <small key={index}>
+                        {line.product}
+                        {line.size ? ` / ${line.size}` : ""} × {line.quantity}
+                        {line.customization
+                          ? ` — ${line.customization.studentName}, ${line.customization.lycee}, ${line.customization.section}`
+                          : ""}
+                      </small>
                     ))}
-                  </select>
-                  {convertedPreorderIds.has(item.id) && (
-                    <small className="order-created-note">ORDER CREATED</small>
-                  )}
-                </td>
-                <td>{new Date(item.created_at).toLocaleDateString("en-GB")}</td>
-              </tr>
-            ))}
+                    {item.notes && <small>“{item.notes}”</small>}
+                  </td>
+                  <td>
+                    {item.request_type === "bulk" ? "—" : money(Number(item.estimated_total))}
+                  </td>
+                  <td>
+                    <select
+                      className={`status-select status-${item.status}`}
+                      value={item.status}
+                      disabled={isUpdating}
+                      aria-busy={isUpdating}
+                      onChange={(event) => onUpdate(item.id, event.target.value)}
+                    >
+                      {preorderStatuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                    {isUpdating && <small className="status-saving">SAVING…</small>}
+                    {convertedPreorderIds.has(item.id) && (
+                      <small className="order-created-note">ORDER CREATED</small>
+                    )}
+                  </td>
+                  <td>{new Date(item.created_at).toLocaleDateString("en-GB")}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {preorders.length === 0 && (
